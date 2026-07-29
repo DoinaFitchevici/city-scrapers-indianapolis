@@ -1,12 +1,11 @@
 from datetime import datetime
 from os.path import dirname, join
 
-import pytest
 from city_scrapers_core.constants import BOARD, TENTATIVE
 from city_scrapers_core.utils import file_response
 from freezegun import freeze_time
 
-from city_scrapers.spiders.ind_indygo import IndIndygoSpider
+from city_scrapers.spiders.ind_indygo_bod import IndIndygoSpider
 
 test_response = file_response(
     join(dirname(__file__), "files", "ind_indygo.html"),
@@ -14,78 +13,64 @@ test_response = file_response(
 )
 spider = IndIndygoSpider()
 
-freezer = freeze_time("2023-07-31")
+freezer = freeze_time("2025-08-10")
 freezer.start()
 
-parsed_items = [item for item in spider.parse(test_response)]
+parsed_items = list(spider.parse(test_response))
 
 freezer.stop()
 
 
-"""
-Uncomment below
-
-def test_tests():
-    print("Please write some tests for this spider or at least disable this one.")
-    assert False
-"""
-
-
-def test_title():
-    assert parsed_items[0]["title"] == "IndyGo Board"
-
-
-def test_description():
-    assert parsed_items[0]["description"] == ""
-
-
-def test_start():
-    assert parsed_items[0]["start"] == datetime(2024, 1, 25, 11, 0)
-
-
-def test_end():
-    assert parsed_items[0]["end"] is None
-
-
-def test_time_notes():
-    assert parsed_items[0]["time_notes"] == ""
-
-
-def test_id():
-    assert parsed_items[0]["id"] == "ind_indygo/202401251100/x/indygo_board"
-
-
-def test_status():
-    assert parsed_items[0]["status"] == TENTATIVE
-
-
-def test_location():
-    assert parsed_items[0]["location"] == {
-        "name": "Administrative Office - Board Room",
-        "address": "1501 W. Washington St. Indianapolis, IN 46222",
-    }
-
-
-def test_source():
+def test_first_item():
+    item = parsed_items[0]
+    assert item["title"] == "IndyGo Board"
+    assert item["description"] == ""
+    assert item["start"] == datetime(2026, 1, 15, 16, 0)
+    assert item["end"] is None
     assert (
-        parsed_items[0]["source"]
-        == "https://www.indygo.net/about-indygo/board-of-directors/"
+        item["time_notes"] == "Check meeting attachments for a more accurate location."
     )
-
-
-def test_links():
-    assert parsed_items[0]["links"] == [
+    assert item["id"] == "ind_indygo/202601151600/x/indygo_board"
+    assert item["status"] == TENTATIVE
+    assert item["location"] == {
+        "name": "'B' Building",
+        "address": "9503 E 33rd St, Indianapolis, IN 46235",
+    }
+    assert item["source"] == "https://www.indygo.net/about-indygo/board-of-directors/"
+    assert item["links"] == [
         {
-            "href": "https://www.facebook.com/IndyGoBus/",
-            "title": "Facebook page for meeting livestream",
-        }
+            "href": "https://www.indygo.net/wp-content/uploads/2026/01/January_Board_of_Directors__Annual_Board_of_Finance_Meeting_Book.pdf",  # noqa
+            "title": "Board Reports",
+        },
+    ]
+    assert item["classification"] == BOARD
+
+
+def test_all_day():
+    assert all(item["all_day"] is False for item in parsed_items)
+
+
+def test_meeting_count():
+    assert len(parsed_items) == 13
+
+
+def test_board_reports_specific_link():
+    # February's report is published, so it resolves to that month's PDF.
+    item = next(i for i in parsed_items if i["start"] == datetime(2026, 2, 19, 16, 0))
+    assert item["links"] == [
+        {
+            "href": "https://www.indygo.net/wp-content/uploads/2026/02/February_Board_of_Directors_Book-10.pdf",  # noqa
+            "title": "Board Reports",
+        },
     ]
 
 
-def test_classification():
-    assert parsed_items[0]["classification"] == BOARD
+def test_no_board_reports_link_until_published():
+    # August's report isn't published yet.
+    item = next(i for i in parsed_items if i["start"] == datetime(2026, 8, 20, 16, 0))
+    assert item["links"] == []
 
 
-@pytest.mark.parametrize("item", parsed_items)
-def test_all_day(item):
-    assert item["all_day"] is False
+def test_unique_ids():
+    ids = [item["id"] for item in parsed_items]
+    assert len(ids) == len(set(ids))
