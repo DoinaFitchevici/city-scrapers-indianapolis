@@ -9,6 +9,13 @@ spider_configs = [
         "title": "IndyGo Board",
         "section_heading_match": "Board Meeting Dates",
         "board_reports_container_selector": ".rc-accordion",
+        "video_archive_pattern": r"^Board\b",
+        "links": [
+            {
+                "href": "https://www.youtube.com/@iptcIndyGo/streams",
+                "title": "Live Stream",
+            },
+        ],
     },
     {
         "class_name": "IndIndygoFinanceSpider",
@@ -17,6 +24,7 @@ spider_configs = [
         "agency_name": "IndyGo Board of Directors",
         "title": "IndyGo Finance Committee",
         "section_heading_match": "Finance Committee Meetings",
+        "video_archive_pattern": r"^Finance Committee\b",
     },
     {
         "class_name": "IndIndygoGovAuditSpider",
@@ -25,6 +33,7 @@ spider_configs = [
         "agency_name": "IndyGo Board of Directors",
         "title": "IndyGo Governance and Audit Committee",
         "section_heading_match": "Governance and Audit Committee",
+        "video_archive_pattern": r"^Governance\s*(?:and|&)\s*Audit",
     },
     {
         "class_name": "IndIndygoServiceSpider",
@@ -33,6 +42,7 @@ spider_configs = [
         "agency_name": "IndyGo Board of Directors",
         "title": "IndyGo Service Committee",
         "section_heading_match": "Service Committee Meetings",
+        "video_archive_pattern": r"^Service Committee\b",
     },
 ]
 

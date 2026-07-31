@@ -62,6 +62,10 @@ class IndIndygoBodSpiderMixin(
 
     board_reports_container_selector = None
 
+    video_archive_url = "https://www.indygo.net/board-meeting-media-archives/"
+
+    video_archive_pattern = None
+
     _MONTH_NAMES = (
         "January",
         "February",
@@ -77,18 +81,17 @@ class IndIndygoBodSpiderMixin(
         "December",
     )
 
-    schedule_container_selector = ".rc-layout-content.rc-text-large"
+    schedule_container_selector = ".rc-layout-content.rc-text-lg"
 
     timezone = "America/Detroit"
 
-    base_url = "https://www.indygo.net/about-indygo/board-of-directors/"
-    start_urls = [base_url]
+    start_urls = ["https://www.indygo.net/about-indygo/board-of-directors/"]
 
     location = {
-        "name": "'B' Building",
+        "name": "Boardroom -'B' building",
         "address": "9503 E 33rd St, Indianapolis, IN 46235",
     }
-    custom_settings = {"ROBOTSTXT_OBEY": False}
+    custom_settings = {"ROBOTSTXT_OBEY": False, "FEED_EXPORT_ENCODING": "utf-8"}
 
     def parse(self, response):
         """
@@ -133,7 +136,10 @@ class IndIndygoBodSpiderMixin(
         meeting_time = self._parse_meeting_time(raw_meeting_time)
 
         starts = [
-            self._parse_start(date_item, meeting_year, meeting_time)
+            (
+                self._parse_start(date_item, meeting_year, meeting_time),
+                self._parse_title(date_item),
+            )
             for date_item in dates_list.css("li")
         ]
 
@@ -143,10 +149,10 @@ class IndIndygoBodSpiderMixin(
             else None
         )
 
-        if listings_href:
+        if self.video_archive_pattern:
             yield scrapy.Request(
-                response.urljoin(listings_href),
-                callback=self._parse_meeting_listings_and_build,
+                self.video_archive_url,
+                callback=self._parse_video_archive_and_continue,
                 cb_kwargs={
                     "starts": starts,
                     "source": response.url,
@@ -155,15 +161,54 @@ class IndIndygoBodSpiderMixin(
                 },
             )
         else:
-            for start in starts:
-                links = self._resolve_links(
-                    start, board_reports_by_month=board_reports_by_month
-                )
-                yield self._build_meeting(start, links, response.url)
+            yield from self._continue_parsing(
+                starts, response.url, listings_href, board_reports_by_month
+            )
 
-    def _build_meeting(self, start, links, source):
+    def _parse_video_archive_and_continue(
+        self, response, starts, source, board_reports_by_month, listings_href
+    ):
+        video_link_by_month = self._parse_video_archive(response)
+        yield from self._continue_parsing(
+            starts,
+            source,
+            listings_href,
+            board_reports_by_month,
+            video_link_by_month,
+        )
+
+    def _continue_parsing(
+        self,
+        starts,
+        source,
+        listings_href,
+        board_reports_by_month=None,
+        video_link_by_month=None,
+    ):
+        if listings_href:
+            yield scrapy.Request(
+                listings_href,
+                callback=self._parse_meeting_listings_and_build,
+                cb_kwargs={
+                    "starts": starts,
+                    "source": source,
+                    "board_reports_by_month": board_reports_by_month,
+                    "listings_href": listings_href,
+                    "video_link_by_month": video_link_by_month,
+                },
+            )
+        else:
+            for start, title in starts:
+                links = self._resolve_links(
+                    start,
+                    board_reports_by_month=board_reports_by_month,
+                    video_link_by_month=video_link_by_month,
+                )
+                yield self._build_meeting(start, title, links, source)
+
+    def _build_meeting(self, start, title, links, source):
         meeting = Meeting(
-            title=self.title,
+            title=title,
             description="",
             classification=BOARD,
             start=start,
@@ -181,19 +226,26 @@ class IndIndygoBodSpiderMixin(
         return meeting
 
     def _parse_meeting_listings_and_build(
-        self, response, starts, source, listings_href, board_reports_by_month=None
+        self,
+        response,
+        starts,
+        source,
+        listings_href,
+        board_reports_by_month=None,
+        video_link_by_month=None,
     ):
         """Match each meeting to its specific page on the OnBoard listing."""
         meeting_link_by_date = self._parse_meeting_listings(response)
 
-        for start in starts:
+        for start, title in starts:
             links = self._resolve_links(
                 start,
                 listings_href=listings_href,
                 meeting_link_by_date=meeting_link_by_date,
                 board_reports_by_month=board_reports_by_month,
+                video_link_by_month=video_link_by_month,
             )
-            yield self._build_meeting(start, links, source)
+            yield self._build_meeting(start, title, links, source)
 
     def _resolve_links(
         self,
@@ -201,6 +253,7 @@ class IndIndygoBodSpiderMixin(
         listings_href=None,
         meeting_link_by_date=None,
         board_reports_by_month=None,
+        video_link_by_month=None,
     ):
         """Add a link only once a document for this exact meeting exists."""
         links = [dict(link) for link in self.links]
@@ -211,7 +264,13 @@ class IndIndygoBodSpiderMixin(
 
         if board_reports_by_month:
             month_key = (str(start.year), start.strftime("%B"))
-            self._append_link(links, board_reports_by_month, month_key, "Board Reports")
+            self._append_link(links, board_reports_by_month, month_key, "Board Report")
+
+        if video_link_by_month:
+            month_key = (str(start.year), start.strftime("%B"))
+            href = video_link_by_month.pop(month_key, None)
+            if href:
+                links.append({"href": href, "title": "Video"})
 
         return links
 
@@ -262,6 +321,41 @@ class IndIndygoBodSpiderMixin(
                 )
 
         return board_reports_by_month
+
+    def _parse_video_archive(self, response):
+        video_link_by_month = {}
+
+        for year_item in response.css(".rc-block--accordion .rc-accordion-item"):
+            year = year_item.css(".rc-accordion-button-text::text").get()
+            if not year:
+                continue
+
+            current_month = None
+
+            for child in year_item.css(".rc-accordion-content").xpath("./*"):
+                tag = child.root.tag
+
+                if tag == "p":
+                    current_month = "".join(child.css("::text").getall()).strip()
+                    continue
+
+                if tag != "ul" or not current_month:
+                    continue
+
+                for link in child.css("li > a"):
+                    link_text = "".join(link.css("::text").getall()).strip()
+                    if not re.match(
+                        self.video_archive_pattern, link_text, re.IGNORECASE
+                    ):
+                        continue
+
+                    href = link.attrib.get("href")
+                    if not href:
+                        continue
+
+                    video_link_by_month[(year, current_month)] = response.urljoin(href)
+
+        return video_link_by_month
 
     def _parse_meeting_listings(self, response):
         meeting_link_by_date = {}
@@ -384,3 +478,15 @@ class IndIndygoBodSpiderMixin(
         meeting_date = date_match.group()
 
         return parser().parse(f"{meeting_date} {meeting_year} {meeting_time}")
+
+    def _parse_title(self, date_item):
+        raw_date = " ".join(date_item.css("::text").getall()).strip()
+
+        date_match = self._DATE_PREFIX_RE.match(raw_date)
+        remainder = raw_date[date_match.end() :] if date_match else raw_date
+
+        description_match = re.match(r"\s*[-–]\s*(.+)", remainder)
+        if description_match:
+            return f"{self.title} – {description_match.group(1).strip()}"
+
+        return self.title
