@@ -88,7 +88,7 @@ class IndIndygoBodSpiderMixin(
     start_urls = ["https://www.indygo.net/about-indygo/board-of-directors/"]
 
     location = {
-        "name": "Boardroom -'B' building",
+        "name": "Boardroom - 'B' building",
         "address": "9503 E 33rd St, Indianapolis, IN 46235",
     }
     custom_settings = {"ROBOTSTXT_OBEY": False, "FEED_EXPORT_ENCODING": "utf-8"}

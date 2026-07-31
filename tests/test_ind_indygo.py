@@ -51,7 +51,7 @@ def test_first_item():
     assert item["id"] == "ind_indygo/202601151600/x/indygo_board"
     assert item["status"] == TENTATIVE
     assert item["location"] == {
-        "name": "Boardroom -'B' building",
+        "name": "Boardroom - 'B' building",
         "address": "9503 E 33rd St, Indianapolis, IN 46235",
     }
     assert item["source"] == "https://www.indygo.net/about-indygo/board-of-directors/"
