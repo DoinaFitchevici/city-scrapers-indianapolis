@@ -1,5 +1,6 @@
 import re
 from collections import defaultdict
+from datetime import time
 from urllib.parse import quote, unquote
 
 import scrapy
@@ -21,6 +22,8 @@ class IndPublicLibrarySpider(CityScrapersSpider):
     CUSTOM_SETTINGS = {
         "ROBOTSTXT_OBEY": False,
     }
+
+    DEFAULT_TIME = time(18, 30)
 
     DATE_RE = re.compile(r"[A-Z][a-z]+ \d{1,2},? \d{4}")
     MONTH_DAY_RE = re.compile(r"[A-Z][a-z]+ \d{1,2}")
@@ -61,6 +64,29 @@ class IndPublicLibrarySpider(CityScrapersSpider):
         """
         cleaned = self.ATTACHMENT_DATE_RE.sub("", text, count=1)
         return cleaned.strip(" -,")
+
+    def _at_default_time(self, date_obj):
+        """Combine a parsed date with the meeting's fixed 6:30pm start
+        time. No page ever gives an actual time, so every meeting is
+        set to this same default."""
+        return date_obj.replace(
+            hour=self.DEFAULT_TIME.hour, minute=self.DEFAULT_TIME.minute
+        )
+
+    def _meeting_base_kwargs(self, text, date_obj):
+        """Fields shared by every Meeting we build: title/classification
+        derived from `text`, and the start time/time_notes, which are
+        always the same fixed default since no page ever gives an
+        actual time."""
+        return dict(
+            title=self._parse_title(text),
+            description="",
+            classification=BOARD,
+            start=self._at_default_time(date_obj),
+            end=None,
+            all_day=False,
+            time_notes=self.TIME_NOTES,
+        )
 
     def _parse_documents(self, response):
         """
@@ -130,19 +156,13 @@ class IndPublicLibrarySpider(CityScrapersSpider):
             if not date_match or not href:
                 continue
 
-            start = parse(date_match.group(0))
-            # No time is ever given for archived meetings; use the
-            # regular 6:30pm start and flag it as an assumption.
-            start = start.replace(hour=18, minute=30)
+            base_kwargs = self._meeting_base_kwargs(
+                link_text, parse(date_match.group(0))
+            )
+            start = base_kwargs["start"]
 
             meeting = Meeting(
-                title=self._parse_title(link_text),
-                description="",
-                classification=BOARD,
-                start=start,
-                end=None,
-                all_day=False,
-                time_notes=self.TIME_NOTES,
+                **base_kwargs,
                 location={"name": "", "address": ""},
                 links=[{"href": href, "title": "Video"}]
                 + self._attachment_links(start, self._meeting_kind(link_text)),
@@ -170,12 +190,12 @@ class IndPublicLibrarySpider(CityScrapersSpider):
             # A rescheduled date, if present, overrides the original one.
             reschedule_match = self.DATE_RE.search(full_text)
             is_rescheduled = bool(reschedule_match and "RESCHEDULED" in full_text)
-            if is_rescheduled:
-                start_date = parse(reschedule_match.group(0))
-                start = start_date.replace(hour=0, minute=0)
-            else:
-                start_date = parse(f"{date_match.group(0)}, {year}")
-                start = start_date.replace(hour=18, minute=30)
+            original_date = parse(f"{date_match.group(0)}, {year}")
+            date_obj = (
+                parse(reschedule_match.group(0)) if is_rescheduled else original_date
+            )
+            meeting_kwargs = self._meeting_base_kwargs(full_text, date_obj)
+            start = meeting_kwargs["start"]
 
             links = li.css("a")
             location_links = [
@@ -184,9 +204,10 @@ class IndPublicLibrarySpider(CityScrapersSpider):
             video_links_raw = [a for a in links if a not in location_links]
 
             if "cancel" in full_text.lower() and "RESCHEDULED" in full_text:
-                original_start = parse(f"{date_match.group(0)}, {year}").replace(
-                    hour=18, minute=30
+                cancelled_meeting_kwargs = self._meeting_base_kwargs(
+                    full_text, original_date
                 )
+                original_start = cancelled_meeting_kwargs["start"]
                 original_location_link = location_links[0] if location_links else None
                 original_location_name = (
                     " ".join(original_location_link.css("::text").getall()).strip()
@@ -199,15 +220,6 @@ class IndPublicLibrarySpider(CityScrapersSpider):
                     else None
                 )
 
-                cancelled_meeting_kwargs = dict(
-                    title=self._parse_title(full_text),
-                    description="",
-                    classification=BOARD,
-                    start=original_start,
-                    end=None,
-                    all_day=False,
-                    time_notes=self.TIME_NOTES,
-                )
                 cancelled_trailing_kwargs = dict(
                     links=self._attachment_links(
                         original_start, self._meeting_kind(full_text)
@@ -258,15 +270,6 @@ class IndPublicLibrarySpider(CityScrapersSpider):
                 if a.attrib.get("href")
             ]
 
-            meeting_kwargs = dict(
-                title=self._parse_title(full_text),
-                description="",
-                classification=BOARD,
-                start=start,
-                end=None,
-                all_day=False,
-                time_notes=self.TIME_NOTES,
-            )
             trailing_kwargs = dict(
                 links=video_links
                 + self._attachment_links(start, self._meeting_kind(full_text)),

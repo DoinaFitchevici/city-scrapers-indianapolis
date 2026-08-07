@@ -95,7 +95,7 @@ def test_description(parsed_items):
 
 
 def test_start(parsed_items):
-    assert parsed_items[1]["start"] == datetime(2026, 1, 30, 0, 0)
+    assert parsed_items[1]["start"] == datetime(2026, 1, 30, 18, 30)
 
 
 def test_end(parsed_items):
@@ -114,7 +114,7 @@ def test_time_notes(parsed_items):
 def test_id(parsed_items):
     assert (
         parsed_items[1]["id"]
-        == "ind_public_library/202601300000/x/indianapolis_public_library_board_of_trustees"  # noqa
+        == "ind_public_library/202601301830/x/indianapolis_public_library_board_of_trustees"  # noqa
     )
 
 
