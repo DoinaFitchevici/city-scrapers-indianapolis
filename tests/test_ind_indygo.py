@@ -4,6 +4,7 @@ from os.path import dirname, join
 from city_scrapers_core.constants import BOARD, TENTATIVE
 from city_scrapers_core.utils import file_response
 from freezegun import freeze_time
+from scrapy.http import HtmlResponse
 
 from city_scrapers.spiders.ind_indygo_bod import IndIndygoSpider
 
@@ -45,9 +46,7 @@ def test_first_item():
     assert item["description"] == ""
     assert item["start"] == datetime(2026, 1, 15, 16, 0)
     assert item["end"] is None
-    assert (
-        item["time_notes"] == "Check meeting attachments for a more accurate location."
-    )
+    assert item["time_notes"] == ""
     assert item["id"] == "ind_indygo/202601151600/x/indygo_board"
     assert item["status"] == TENTATIVE
     assert item["location"] == {
@@ -139,3 +138,21 @@ def test_live_stream_link_on_every_meeting():
         any(link["title"] == "Live Stream" for link in item["links"])
         for item in parsed_items
     )
+
+
+def test_location_fallback_when_address_not_found():
+    html_without_address = b"""
+    <html><body>
+        <h2>Attend a Board Meeting</h2>
+        <p>Call the office for meeting details.</p>
+    </body></html>
+    """
+    response = HtmlResponse(
+        url="https://www.indygo.net/about-indygo/board-of-directors/",
+        body=html_without_address,
+    )
+
+    location, time_notes = spider._parse_location_and_time_notes(response)
+
+    assert location == {}
+    assert time_notes == "Check meeting attachments for a more accurate location."

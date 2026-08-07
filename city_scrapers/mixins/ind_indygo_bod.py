@@ -58,7 +58,7 @@ class IndIndygoBodSpiderMixin(
     title = None
     section_heading_match = None
     links = []
-    time_notes = "Check meeting attachments for a more accurate location."
+    _FALLBACK_TIME_NOTES = "Check meeting attachments for a more accurate location."
 
     board_reports_container_selector = None
 
@@ -87,10 +87,6 @@ class IndIndygoBodSpiderMixin(
 
     start_urls = ["https://www.indygo.net/about-indygo/board-of-directors/"]
 
-    location = {
-        "name": "Boardroom - 'B' building",
-        "address": "9503 E 33rd St, Indianapolis, IN 46235",
-    }
     custom_settings = {"ROBOTSTXT_OBEY": False, "FEED_EXPORT_ENCODING": "utf-8"}
 
     def parse(self, response):
@@ -98,6 +94,8 @@ class IndIndygoBodSpiderMixin(
         Parse meetings from this spider's section of the shared schedule
         container, matched by `section_heading_match`.
         """
+        self.location, self.time_notes = self._parse_location_and_time_notes(response)
+
         container = response.css(self.schedule_container_selector)
 
         if not container:
@@ -164,6 +162,43 @@ class IndIndygoBodSpiderMixin(
             yield from self._continue_parsing(
                 starts, response.url, listings_href, board_reports_by_month
             )
+
+    _LOCATION_RE = re.compile(r"held at (?P<address>.+?) in the (?P<name>.+?)\.")
+
+    def _parse_location_and_time_notes(self, response):
+        location = self._parse_location(response)
+        if location:
+            return location, ""
+
+        return {}, self._FALLBACK_TIME_NOTES
+
+    def _parse_location(self, response):
+        headings = response.xpath(
+            '//h2[normalize-space(text())="Attend a Board Meeting"]'
+        )
+        if not headings:
+            return None
+
+        paragraphs = headings[0].xpath("following-sibling::p[1]")
+        if not paragraphs:
+            return None
+
+        paragraph_text = "".join(paragraphs.css("::text").getall()).strip()
+
+        match = self._LOCATION_RE.search(paragraph_text)
+        if not match:
+            return None
+
+        address = match.group("address").replace(".", "").strip()
+        name = match.group("name")
+        name = name.replace("located in our", "-")
+        name = name.replace("“", "'").replace("”", "'").replace('"', "'")
+        name = re.sub(r"\s+", " ", name).strip()
+
+        if not address or not name:
+            return None
+
+        return {"name": name, "address": f"{address}, Indianapolis, IN 46235"}
 
     def _parse_video_archive_and_continue(
         self, response, starts, source, board_reports_by_month, listings_href

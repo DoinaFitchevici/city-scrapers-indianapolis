@@ -47,9 +47,7 @@ def test_first_item():
     assert item["description"] == ""
     assert item["start"] == datetime(2026, 1, 8, 10, 0)
     assert item["end"] is None
-    assert (
-        item["time_notes"] == "Check meeting attachments for a more accurate location."
-    )
+    assert item["time_notes"] == ""
     assert (
         item["id"]
         == "ind_indygo_gov_audit/202601081000/x/indygo_governance_and_audit_committee"
