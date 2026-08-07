@@ -29,6 +29,12 @@ class IndPublicLibrarySpider(CityScrapersSpider):
         r"to be held at (?:the )?([^,]+),\s*([^-]+?)(?:-|$)", re.I
     )
     ATTACHMENT_DATE_RE = re.compile(r"\s*(?:-\s*|on\s+)?" + DATE_RE.pattern, re.I)
+    TIME_NOTES = (
+        "Meetings are usually held at 6:30pm on the fourth Monday "
+        "of the month (third Monday in May/December)."
+        "Please refer to the source page for more accurate "
+        "meeting time and location."
+    )
 
     def start_requests(self):
         # Fetch the documents archive first so we have a date -> PDF
@@ -136,10 +142,7 @@ class IndPublicLibrarySpider(CityScrapersSpider):
                 start=start,
                 end=None,
                 all_day=False,
-                time_notes=(
-                    "Meetings are usually held at 6:30pm on the fourth Monday "
-                    "of the month (third Monday in May/December)"
-                ),
+                time_notes=self.TIME_NOTES,
                 location={"name": "", "address": ""},
                 links=[{"href": href, "title": "Video"}]
                 + self._attachment_links(start, self._meeting_kind(link_text)),
@@ -151,7 +154,7 @@ class IndPublicLibrarySpider(CityScrapersSpider):
 
     def _parse_current_year(self, details, response, year):
         """Parse the '<year> Dates & Locations' section.
- 
+
         Structure: <li><strong>Month Day </strong>at <a>Location</a>[,
         extra address text][ - CANCELLED...][<br>RESCHEDULED to <a>...
         </a>][<br><a>Watch the ... Board Meeting</a>]</li>
@@ -159,11 +162,11 @@ class IndPublicLibrarySpider(CityScrapersSpider):
         for li in details.css("div ul li"):
             full_text = " ".join(li.css("::text").getall())
             full_text = " ".join(full_text.split())
- 
+
             date_match = self.MONTH_DAY_RE.search(full_text)
             if not date_match or not year:
                 continue
- 
+
             # A rescheduled date, if present, overrides the original one.
             reschedule_match = self.DATE_RE.search(full_text)
             is_rescheduled = bool(reschedule_match and "RESCHEDULED" in full_text)
@@ -173,24 +176,20 @@ class IndPublicLibrarySpider(CityScrapersSpider):
             else:
                 start_date = parse(f"{date_match.group(0)}, {year}")
                 start = start_date.replace(hour=18, minute=30)
- 
+
             links = li.css("a")
             location_links = [
                 a for a in links if "/locations/" in (a.attrib.get("href") or "")
             ]
             video_links_raw = [a for a in links if a not in location_links]
- 
+
             if "cancel" in full_text.lower() and "RESCHEDULED" in full_text:
-                original_start = parse(
-                    f"{date_match.group(0)}, {year}"
-                ).replace(hour=18, minute=30)
-                original_location_link = (
-                    location_links[0] if location_links else None
+                original_start = parse(f"{date_match.group(0)}, {year}").replace(
+                    hour=18, minute=30
                 )
+                original_location_link = location_links[0] if location_links else None
                 original_location_name = (
-                    " ".join(
-                        original_location_link.css("::text").getall()
-                    ).strip()
+                    " ".join(original_location_link.css("::text").getall()).strip()
                     if original_location_link is not None
                     else ""
                 )
@@ -199,7 +198,7 @@ class IndPublicLibrarySpider(CityScrapersSpider):
                     if original_location_link is not None
                     else None
                 )
- 
+
                 cancelled_meeting_kwargs = dict(
                     title=self._parse_title(full_text),
                     description="",
@@ -207,11 +206,7 @@ class IndPublicLibrarySpider(CityScrapersSpider):
                     start=original_start,
                     end=None,
                     all_day=False,
-                    time_notes=(
-                        "Meetings are usually held at 6:30pm on the fourth "
-                        "Monday of the month (third Monday in "
-                        "May/December)"
-                    ),
+                    time_notes=self.TIME_NOTES,
                 )
                 cancelled_trailing_kwargs = dict(
                     links=self._attachment_links(
@@ -219,7 +214,7 @@ class IndPublicLibrarySpider(CityScrapersSpider):
                     ),
                     source=response.url,
                 )
- 
+
                 if original_location_url:
                     yield response.follow(
                         original_location_url,
@@ -243,11 +238,11 @@ class IndPublicLibrarySpider(CityScrapersSpider):
                     )
                     cancelled_meeting["id"] = self._get_id(cancelled_meeting)
                     yield cancelled_meeting
- 
+
             # If a meeting was rescheduled, the new location is always the
             # last location link listed, so just take the last one.
             location_link = location_links[-1] if location_links else None
- 
+
             location_name = (
                 " ".join(location_link.css("::text").getall()).strip()
                 if location_link is not None
@@ -262,7 +257,7 @@ class IndPublicLibrarySpider(CityScrapersSpider):
                 for a in video_links_raw
                 if a.attrib.get("href")
             ]
- 
+
             meeting_kwargs = dict(
                 title=self._parse_title(full_text),
                 description="",
@@ -270,18 +265,14 @@ class IndPublicLibrarySpider(CityScrapersSpider):
                 start=start,
                 end=None,
                 all_day=False,
-                time_notes=(
-                    "Meetings are usually held at 6:30pm on the fourth Monday "
-                    "of the month (third Monday in May/December)"
-                ),
+                time_notes=self.TIME_NOTES,
             )
             trailing_kwargs = dict(
-                links=video_links + self._attachment_links(
-                    start, self._meeting_kind(full_text)
-                ),
+                links=video_links
+                + self._attachment_links(start, self._meeting_kind(full_text)),
                 source=response.url,
             )
- 
+
             # Sometimes the text explicitly overrides the linked location,
             # e.g. "... to be held at the Mary Rigg Neighborhood Center,
             # 1920 West Morris Street". When that's present, trust it
