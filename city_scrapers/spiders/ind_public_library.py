@@ -34,7 +34,7 @@ class IndPublicLibrarySpider(CityScrapersSpider):
     ATTACHMENT_DATE_RE = re.compile(r"\s*(?:-\s*|on\s+)?" + DATE_RE.pattern, re.I)
     TIME_NOTES = (
         "Meetings are usually held at 6:30pm on the fourth Monday "
-        "of the month (third Monday in May/December)."
+        "of the month (third Monday in May/December). "
         "Please refer to the source page for more accurate "
         "meeting time and location."
     )
