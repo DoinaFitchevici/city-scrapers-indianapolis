@@ -14,9 +14,8 @@ class IndPublicLibrarySpider(CityScrapersSpider):
     name = "ind_public_library"
     agency = "Indianapolis Public Library Board"
     timezone = "America/Indiana/Indianapolis"
-    start_urls = [
-        "https://www.indypl.org/about-the-library/board-meeting-times-committees"
-    ]
+    base_url = "https://www.indypl.org/about-the-library/board-meeting-times-committees"
+
     DOCUMENTS_URL = "https://www.indypl.org/about-the-library/board-documents-archives"
 
     CUSTOM_SETTINGS = {
@@ -38,6 +37,7 @@ class IndPublicLibrarySpider(CityScrapersSpider):
         "Please refer to the source page for more accurate "
         "meeting time and location."
     )
+    attachments = defaultdict(list)
 
     def start_requests(self):
         # Fetch the documents archive first so we have a date -> PDF
@@ -75,9 +75,7 @@ class IndPublicLibrarySpider(CityScrapersSpider):
 
     def _meeting_base_kwargs(self, text, date_obj):
         """Fields shared by every Meeting we build: title/classification
-        derived from `text`, and the start time/time_notes, which are
-        always the same fixed default since no page ever gives an
-        actual time."""
+        derived from `text`, and the start time/time_notes"""
         return dict(
             title=self._parse_title(text),
             description="",
@@ -97,7 +95,7 @@ class IndPublicLibrarySpider(CityScrapersSpider):
         meeting's documents separate from an Annual/Special meeting's
         documents that happen to fall on the same date.
         """
-        self.attachments = defaultdict(list)
+
         for details in response.css("details"):
             summary_text = " ".join(details.css("summary ::text").getall())
             summary_text = " ".join(summary_text.split())
@@ -120,7 +118,7 @@ class IndPublicLibrarySpider(CityScrapersSpider):
                     (quote(unquote(href), safe=":/,"), self._strip_date(text))
                 )
 
-        yield response.follow(self.start_urls[0], callback=self.parse)
+        yield response.follow(self.base_url, callback=self.parse)
 
     def _attachment_links(self, start, kind):
         """Any board-document PDFs whose listed date and meeting kind
@@ -135,6 +133,7 @@ class IndPublicLibrarySpider(CityScrapersSpider):
         meetings (formatted as <p>/<a> pairs), the other is the current
         year's "Dates & Locations" list (formatted as <ul><li>).
         """
+
         for details in response.css("details"):
             summary_text = " ".join(details.css("summary ::text").getall())
             summary_text = " ".join(summary_text.split())
@@ -144,6 +143,10 @@ class IndPublicLibrarySpider(CityScrapersSpider):
             elif "Dates" in summary_text and "Locations" in summary_text:
                 year_match = self.YEAR_RE.search(summary_text)
                 year = year_match.group(0) if year_match else None
+                if year is None:
+                    self.logger.warning(
+                        f"Could not find year in summary '{summary_text}' on {response.url}"  # noqa
+                    )
                 yield from self._parse_current_year(details, response, year)
 
     def _parse_archive(self, details, response):
@@ -172,6 +175,52 @@ class IndPublicLibrarySpider(CityScrapersSpider):
             meeting["id"] = self._get_id(meeting)
             yield meeting
 
+    def _location_from_link(self, link):
+        """Extract (name, url) from a location <a> tag, or ("", None) if absent."""
+        if link is None:
+            return "", None
+        name = " ".join(link.css("::text").getall()).strip()
+        url = link.attrib.get("href")
+        return name, url
+
+    def _build_meeting(self, meeting_kwargs, location, trailing_kwargs, status_text=""):
+        """Construct a Meeting, filling in its derived status and id."""
+        meeting = Meeting(**meeting_kwargs, location=location, **trailing_kwargs)
+        meeting["status"] = self._get_status(meeting, status_text)
+        meeting["id"] = self._get_id(meeting)
+        return meeting
+
+    def _yield_meeting_or_follow(
+        self,
+        response,
+        location_url,
+        location_name,
+        meeting_kwargs,
+        trailing_kwargs,
+        status_text="",
+    ):
+        """Follow the location page if we have a URL, else yield a Meeting directly."""
+        if location_url:
+            yield response.follow(
+                location_url,
+                callback=self._parse_location_page,
+                cb_kwargs={
+                    "location_name": location_name,
+                    "meeting_kwargs": meeting_kwargs,
+                    "trailing_kwargs": trailing_kwargs,
+                    "status_text": status_text,
+                },
+                # Multiple meetings can share the same location page
+                dont_filter=True,
+            )
+        else:
+            yield self._build_meeting(
+                meeting_kwargs,
+                {"name": location_name, "address": ""},
+                trailing_kwargs,
+                status_text,
+            )
+
     def _parse_current_year(self, details, response, year):
         """Parse the '<year> Dates & Locations' section.
 
@@ -179,6 +228,7 @@ class IndPublicLibrarySpider(CityScrapersSpider):
         extra address text][ - CANCELLED...][<br>RESCHEDULED to <a>...
         </a>][<br><a>Watch the ... Board Meeting</a>]</li>
         """
+
         for li in details.css("div ul li"):
             full_text = " ".join(li.css("::text").getall())
             full_text = " ".join(full_text.split())
@@ -191,10 +241,10 @@ class IndPublicLibrarySpider(CityScrapersSpider):
             reschedule_match = self.DATE_RE.search(full_text)
             is_rescheduled = bool(reschedule_match and "RESCHEDULED" in full_text)
             original_date = parse(f"{date_match.group(0)}, {year}")
-            date_obj = (
+            datetime_obj = (
                 parse(reschedule_match.group(0)) if is_rescheduled else original_date
             )
-            meeting_kwargs = self._meeting_base_kwargs(full_text, date_obj)
+            meeting_kwargs = self._meeting_base_kwargs(full_text, datetime_obj)
             start = meeting_kwargs["start"]
 
             links = li.css("a")
@@ -207,61 +257,30 @@ class IndPublicLibrarySpider(CityScrapersSpider):
                 cancelled_meeting_kwargs = self._meeting_base_kwargs(
                     full_text, original_date
                 )
-                original_start = cancelled_meeting_kwargs["start"]
-                original_location_link = location_links[0] if location_links else None
-                original_location_name = (
-                    " ".join(original_location_link.css("::text").getall()).strip()
-                    if original_location_link is not None
-                    else ""
+                original_location_name, original_location_url = (
+                    self._location_from_link(
+                        location_links[0] if location_links else None
+                    )
                 )
-                original_location_url = (
-                    original_location_link.attrib.get("href")
-                    if original_location_link is not None
-                    else None
-                )
-
                 cancelled_trailing_kwargs = dict(
                     links=self._attachment_links(
-                        original_start, self._meeting_kind(full_text)
+                        cancelled_meeting_kwargs["start"], self._meeting_kind(full_text)
                     ),
                     source=response.url,
                 )
-
-                if original_location_url:
-                    yield response.follow(
-                        original_location_url,
-                        callback=self._parse_location_page,
-                        cb_kwargs={
-                            "location_name": original_location_name,
-                            "meeting_kwargs": cancelled_meeting_kwargs,
-                            "trailing_kwargs": cancelled_trailing_kwargs,
-                            "status_text": full_text,
-                        },
-                        dont_filter=True,
-                    )
-                else:
-                    cancelled_meeting = Meeting(
-                        **cancelled_meeting_kwargs,
-                        location={"name": original_location_name, "address": ""},
-                        **cancelled_trailing_kwargs,
-                    )
-                    cancelled_meeting["status"] = self._get_status(
-                        cancelled_meeting, full_text
-                    )
-                    cancelled_meeting["id"] = self._get_id(cancelled_meeting)
-                    yield cancelled_meeting
+                yield from self._yield_meeting_or_follow(
+                    response,
+                    original_location_url,
+                    original_location_name,
+                    cancelled_meeting_kwargs,
+                    cancelled_trailing_kwargs,
+                    status_text=full_text,
+                )
 
             # If a meeting was rescheduled, the new location is always the
             # last location link listed, so just take the last one.
-            location_link = location_links[-1] if location_links else None
-
-            location_name = (
-                " ".join(location_link.css("::text").getall()).strip()
-                if location_link is not None
-                else ""
-            )
-            location_url = (
-                location_link.attrib.get("href") if location_link is not None else None
+            location_name, location_url = self._location_from_link(
+                location_links[-1] if location_links else None
             )
 
             video_links = [
@@ -282,43 +301,28 @@ class IndPublicLibrarySpider(CityScrapersSpider):
             # instead of the branch page linked in the <a> tag.
             override_match = self.LOCATION_OVERRIDE_RE.search(full_text)
             if override_match:
-                meeting = Meeting(
-                    **meeting_kwargs,
-                    location={
+                yield self._build_meeting(
+                    meeting_kwargs,
+                    {
                         "name": override_match.group(1).strip(),
                         "address": override_match.group(2).strip(),
                     },
-                    **trailing_kwargs,
-                )
-                meeting["status"] = self._get_status(meeting)
-                meeting["id"] = self._get_id(meeting)
-                yield meeting
-            elif location_url:
-                yield response.follow(
-                    location_url,
-                    callback=self._parse_location_page,
-                    cb_kwargs={
-                        "location_name": location_name,
-                        "meeting_kwargs": meeting_kwargs,
-                        "trailing_kwargs": trailing_kwargs,
-                    },
-                    # Multiple meetings can share the same location page
-                    dont_filter=True,
+                    trailing_kwargs,
                 )
             else:
-                meeting = Meeting(
-                    **meeting_kwargs,
-                    location={"name": location_name, "address": ""},
-                    **trailing_kwargs,
+                yield from self._yield_meeting_or_follow(
+                    response,
+                    location_url,
+                    location_name,
+                    meeting_kwargs,
+                    trailing_kwargs,
                 )
-                meeting["status"] = self._get_status(meeting)
-                meeting["id"] = self._get_id(meeting)
-                yield meeting
 
     def _parse_location_page(
         self, response, location_name, meeting_kwargs, trailing_kwargs, status_text=""
     ):
         """Pull the street address off a location's own page"""
+
         address_parts = response.css("p.HeroLocation__address strong ::text").getall()
         address = ", ".join(part.strip() for part in address_parts if part.strip())
 
@@ -335,6 +339,7 @@ class IndPublicLibrarySpider(CityScrapersSpider):
         """Classify a meeting or document as Regular, Special, or Annual
         based on its text, so documents only attach to the matching
         meeting rather than every meeting on the same date."""
+
         text_lower = text.lower()
         if "facilities committee" in text_lower:
             return "Facilities Committee"
