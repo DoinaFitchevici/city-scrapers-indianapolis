@@ -54,9 +54,7 @@ def spider():
 @pytest.fixture(scope="module")
 def documents_data():
     return file_response(
-        join(
-            dirname(__file__), "files", "ind_public_library_documents_archives.html"
-        ),
+        join(dirname(__file__), "files", "ind_public_library_documents_archives.html"),
         url=DOCUMENTS_URL,
     )
 
@@ -154,6 +152,4 @@ def test_all_day(parsed_items):
 
 def test_future_meeting_without_video_link(parsed_items):
     assert parsed_items[11]["status"] == "tentative"
-    assert not any(
-        link["title"] == "Video" for link in parsed_items[11]["links"]
-    )
+    assert not any(link["title"] == "Video" for link in parsed_items[11]["links"])
