@@ -154,5 +154,5 @@ def test_location_fallback_when_address_not_found():
 
     location, time_notes = spider._parse_location_and_time_notes(response)
 
-    assert location == {}
+    assert location == {"name": "", "address": ""}
     assert time_notes == "Check meeting attachments for a more accurate location."

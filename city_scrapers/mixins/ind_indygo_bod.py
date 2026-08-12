@@ -58,6 +58,9 @@ class IndIndygoBodSpiderMixin(
     title = None
     section_heading_match = None
     links = []
+    location = {"name": "", "address": ""}
+    time_notes = ""
+
     _FALLBACK_TIME_NOTES = "Check meeting attachments for a more accurate location."
 
     board_reports_container_selector = None
@@ -170,7 +173,7 @@ class IndIndygoBodSpiderMixin(
         if location:
             return location, ""
 
-        return {}, self._FALLBACK_TIME_NOTES
+        return {"name": "", "address": ""}, self._FALLBACK_TIME_NOTES
 
     def _parse_location(self, response):
         headings = response.xpath(
