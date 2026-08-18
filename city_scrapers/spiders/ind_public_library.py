@@ -1,97 +1,357 @@
+import re
+from collections import defaultdict
+from datetime import time
+from urllib.parse import quote, unquote
+
+import scrapy
 from city_scrapers_core.constants import BOARD
 from city_scrapers_core.items import Meeting
 from city_scrapers_core.spiders import CityScrapersSpider
-from dateutil.parser import parser
+from dateutil.parser import parse
 
 
 class IndPublicLibrarySpider(CityScrapersSpider):
     name = "ind_public_library"
     agency = "Indianapolis Public Library Board"
-    timezone = "America/Detroit"
-    start_urls = [
-        "https://www.indypl.org/about-the-library/board-meeting-times-committees"
-    ]
+    timezone = "America/Indiana/Indianapolis"
+    base_url = "https://www.indypl.org/about-the-library/board-meeting-times-committees"
+
+    DOCUMENTS_URL = "https://www.indypl.org/about-the-library/board-documents-archives"
+
+    CUSTOM_SETTINGS = {
+        "ROBOTSTXT_OBEY": False,
+    }
+
+    DEFAULT_TIME = time(18, 30)
+
+    DATE_RE = re.compile(r"[A-Z][a-z]+ \d{1,2},? \d{4}")
+    MONTH_DAY_RE = re.compile(r"[A-Z][a-z]+ \d{1,2}")
+    YEAR_RE = re.compile(r"\d{4}")
+    LOCATION_OVERRIDE_RE = re.compile(
+        r"to be held at (?:the )?([^,]+),\s*([^-]+?)(?:-|$)", re.I
+    )
+    ATTACHMENT_DATE_RE = re.compile(r"\s*(?:-\s*|on\s+)?" + DATE_RE.pattern, re.I)
+    TIME_NOTES = (
+        "Meetings are usually held at 6:30pm on the fourth Monday "
+        "of the month (third Monday in May/December). "
+        "Please refer to the source page for more accurate "
+        "meeting time and location."
+    )
+    attachments = defaultdict(list)
+
+    def start_requests(self):
+        # Fetch the documents archive first so we have a date -> PDF
+        # link map ready before we build any Meeting items.
+        yield scrapy.Request(self.DOCUMENTS_URL, callback=self._parse_documents)
+
+    EXCLUDED_DOC_RE = re.compile(r"exec(?:utive)?\s*session", re.I)
+
+    def _is_board_meeting_document(self, text):
+        """Committee notices and executive-session agendas/minutes
+        aren't documents for the Board meeting itself, even though
+        they share its date - only keep genuine Board/Annual/Special
+        meeting documents and their minutes."""
+        if self.EXCLUDED_DOC_RE.search(text):
+            return False
+        return True
+
+    def _strip_date(self, text):
+        """Remove the date (and its connector word/dash) from a
+        document's display text, since the meeting's own `start`
+        already carries that information, e.g.:
+        "AGENDA - Executive Session on November 25, 2024" ->
+        "AGENDA - Executive Session"
+        """
+        cleaned = self.ATTACHMENT_DATE_RE.sub("", text, count=1)
+        return cleaned.strip(" -,")
+
+    def _at_default_time(self, date_obj):
+        """Combine a parsed date with the meeting's fixed 6:30pm start
+        time. No page ever gives an actual time, so every meeting is
+        set to this same default."""
+        return date_obj.replace(
+            hour=self.DEFAULT_TIME.hour, minute=self.DEFAULT_TIME.minute
+        )
+
+    def _meeting_base_kwargs(self, text, date_obj):
+        """Fields shared by every Meeting we build: title/classification
+        derived from `text`, and the start time/time_notes"""
+        return dict(
+            title=self._parse_title(text),
+            description="",
+            classification=BOARD,
+            start=self._at_default_time(date_obj),
+            end=None,
+            all_day=False,
+            time_notes=self.TIME_NOTES,
+        )
+
+    def _parse_documents(self, response):
+        """
+        Build a {(date, kind): [attachment hrefs]} map from the board
+        documents archive page. That page is split into year
+        accordions.
+        Keying on (date, kind) instead of just date keeps a Regular
+        meeting's documents separate from an Annual/Special meeting's
+        documents that happen to fall on the same date.
+        """
+
+        for details in response.css("details"):
+            summary_text = " ".join(details.css("summary ::text").getall())
+            summary_text = " ".join(summary_text.split())
+            year_match = self.YEAR_RE.search(summary_text)
+            if not year_match:
+                continue
+            year = year_match.group(0)
+
+            for link in details.css("li a"):
+                href = link.attrib.get("href")
+                text = " ".join(link.css("::text").getall()).strip()
+                if not href or not self._is_board_meeting_document(text):
+                    continue
+                month_day_match = self.MONTH_DAY_RE.search(text)
+                if not month_day_match:
+                    continue
+                date_key = parse(f"{month_day_match.group(0)}, {year}").date()
+                kind = self._meeting_kind(text)
+                self.attachments[(date_key, kind)].append(
+                    (quote(unquote(href), safe=":/,"), self._strip_date(text))
+                )
+
+        yield response.follow(self.base_url, callback=self.parse)
+
+    def _attachment_links(self, start, kind):
+        """Any board-document PDFs whose listed date and meeting kind
+        (Regular/Special/Annual) match this meeting."""
+        docs = getattr(self, "attachments", {}).get((start.date(), kind), [])
+        return [{"href": href, "title": title} for href, title in docs]
 
     def parse(self, response):
         """
-        `parse` should always `yield` Meeting items.
-
-        Change the `_parse_title`, `_parse_start`, etc methods to fit your scraping
-        needs.
+        Each accordion is a <details> block. We tell them apart by the
+        text of their <summary>: one is the "... Archive" of past
+        meetings (formatted as <p>/<a> pairs), the other is the current
+        year's "Dates & Locations" list (formatted as <ul><li>).
         """
-        count = 0
-        for item in response.css("details div ul li"):
-            if count < 15:
-                meeting = Meeting(
-                    title=self._parse_title(item),
-                    description=self._parse_description(item),
-                    classification=self._parse_classification(item),
-                    start=self._parse_start(item),
-                    end=self._parse_end(item),
-                    all_day=self._parse_all_day(item),
-                    time_notes=self._parse_time_notes(item),
-                    location=self._parse_location(item),
-                    links=self._parse_links(item),
-                    source=self._parse_source(response),
+
+        for details in response.css("details"):
+            summary_text = " ".join(details.css("summary ::text").getall())
+            summary_text = " ".join(summary_text.split())
+
+            if "Archive" in summary_text:
+                yield from self._parse_archive(details, response)
+            elif "Dates" in summary_text and "Locations" in summary_text:
+                year_match = self.YEAR_RE.search(summary_text)
+                year = year_match.group(0) if year_match else None
+                if year is None:
+                    self.logger.warning(
+                        f"Could not find year in summary '{summary_text}' on {response.url}"  # noqa
+                    )
+                yield from self._parse_current_year(details, response, year)
+
+    def _parse_archive(self, details, response):
+        for link in details.css("div p a"):
+            link_text = " ".join(link.css("::text").getall())
+            link_text = " ".join(link_text.split())
+            href = link.attrib.get("href")
+
+            date_match = self.DATE_RE.search(link_text)
+            if not date_match or not href:
+                continue
+
+            base_kwargs = self._meeting_base_kwargs(
+                link_text, parse(date_match.group(0))
+            )
+            start = base_kwargs["start"]
+
+            meeting = Meeting(
+                **base_kwargs,
+                location={"name": "", "address": ""},
+                links=[{"href": href, "title": "Video"}]
+                + self._attachment_links(start, self._meeting_kind(link_text)),
+                source=response.url,
+            )
+            meeting["status"] = self._get_status(meeting)
+            meeting["id"] = self._get_id(meeting)
+            yield meeting
+
+    def _location_from_link(self, link):
+        """Extract (name, url) from a location <a> tag, or ("", None) if absent."""
+        if link is None:
+            return "", None
+        name = " ".join(link.css("::text").getall()).strip()
+        url = link.attrib.get("href")
+        return name, url
+
+    def _build_meeting(self, meeting_kwargs, location, trailing_kwargs, status_text=""):
+        """Construct a Meeting, filling in its derived status and id."""
+        meeting = Meeting(**meeting_kwargs, location=location, **trailing_kwargs)
+        meeting["status"] = self._get_status(meeting, status_text)
+        meeting["id"] = self._get_id(meeting)
+        return meeting
+
+    def _yield_meeting_or_follow(
+        self,
+        response,
+        location_url,
+        location_name,
+        meeting_kwargs,
+        trailing_kwargs,
+        status_text="",
+    ):
+        """Follow the location page if we have a URL, else yield a Meeting directly."""
+        if location_url:
+            yield response.follow(
+                location_url,
+                callback=self._parse_location_page,
+                cb_kwargs={
+                    "location_name": location_name,
+                    "meeting_kwargs": meeting_kwargs,
+                    "trailing_kwargs": trailing_kwargs,
+                    "status_text": status_text,
+                },
+                # Multiple meetings can share the same location page
+                dont_filter=True,
+            )
+        else:
+            yield self._build_meeting(
+                meeting_kwargs,
+                {"name": location_name, "address": ""},
+                trailing_kwargs,
+                status_text,
+            )
+
+    def _parse_current_year(self, details, response, year):
+        """Parse the '<year> Dates & Locations' section.
+
+        Structure: <li><strong>Month Day </strong>at <a>Location</a>[,
+        extra address text][ - CANCELLED...][<br>RESCHEDULED to <a>...
+        </a>][<br><a>Watch the ... Board Meeting</a>]</li>
+        """
+
+        for li in details.css("div ul li"):
+            full_text = " ".join(li.css("::text").getall())
+            full_text = " ".join(full_text.split())
+
+            date_match = self.MONTH_DAY_RE.search(full_text)
+            if not date_match or not year:
+                continue
+
+            # A rescheduled date, if present, overrides the original one.
+            reschedule_match = self.DATE_RE.search(full_text)
+            is_rescheduled = bool(reschedule_match and "RESCHEDULED" in full_text)
+            original_date = parse(f"{date_match.group(0)}, {year}")
+            datetime_obj = (
+                parse(reschedule_match.group(0)) if is_rescheduled else original_date
+            )
+            meeting_kwargs = self._meeting_base_kwargs(full_text, datetime_obj)
+            start = meeting_kwargs["start"]
+
+            links = li.css("a")
+            location_links = [
+                a for a in links if "/locations/" in (a.attrib.get("href") or "")
+            ]
+            video_links_raw = [a for a in links if a not in location_links]
+
+            if "cancel" in full_text.lower() and "RESCHEDULED" in full_text:
+                cancelled_meeting_kwargs = self._meeting_base_kwargs(
+                    full_text, original_date
+                )
+                original_location_name, original_location_url = (
+                    self._location_from_link(
+                        location_links[0] if location_links else None
+                    )
+                )
+                cancelled_trailing_kwargs = dict(
+                    links=self._attachment_links(
+                        cancelled_meeting_kwargs["start"], self._meeting_kind(full_text)
+                    ),
+                    source=response.url,
+                )
+                yield from self._yield_meeting_or_follow(
+                    response,
+                    original_location_url,
+                    original_location_name,
+                    cancelled_meeting_kwargs,
+                    cancelled_trailing_kwargs,
+                    status_text=full_text,
                 )
 
-                meeting["status"] = self._get_status(meeting)
-                meeting["id"] = self._get_id(meeting)
-                count += 1
-                yield meeting
+            # If a meeting was rescheduled, the new location is always the
+            # last location link listed, so just take the last one.
+            location_name, location_url = self._location_from_link(
+                location_links[-1] if location_links else None
+            )
+
+            video_links = [
+                {"href": a.attrib.get("href"), "title": "Video"}
+                for a in video_links_raw
+                if a.attrib.get("href")
+            ]
+
+            trailing_kwargs = dict(
+                links=video_links
+                + self._attachment_links(start, self._meeting_kind(full_text)),
+                source=response.url,
+            )
+
+            # Sometimes the text explicitly overrides the linked location,
+            # e.g. "... to be held at the Mary Rigg Neighborhood Center,
+            # 1920 West Morris Street". When that's present, trust it
+            # instead of the branch page linked in the <a> tag.
+            override_match = self.LOCATION_OVERRIDE_RE.search(full_text)
+            if override_match:
+                yield self._build_meeting(
+                    meeting_kwargs,
+                    {
+                        "name": override_match.group(1).strip(),
+                        "address": override_match.group(2).strip(),
+                    },
+                    trailing_kwargs,
+                )
             else:
-                break
+                yield from self._yield_meeting_or_follow(
+                    response,
+                    location_url,
+                    location_name,
+                    meeting_kwargs,
+                    trailing_kwargs,
+                )
 
-    def _parse_title(self, item):
-        """Parse or generate meeting title."""
-        title = "Indianapolis Public Library Board Of Trustees"
-        return title
+    def _parse_location_page(
+        self, response, location_name, meeting_kwargs, trailing_kwargs, status_text=""
+    ):
+        """Pull the street address off a location's own page"""
 
-    def _parse_description(self, item):
-        """Parse or generate meeting description."""
-        return ""
+        address_parts = response.css("p.HeroLocation__address strong ::text").getall()
+        address = ", ".join(part.strip() for part in address_parts if part.strip())
 
-    def _parse_classification(self, item):
-        """Parse or generate classification from allowed options."""
-        return BOARD
-
-    def _parse_start(self, item):
-        """Parse start datetime as a naive datetime object."""
-        text = item.css("::text").get()
-        start_date = text.split(" ", 2)[0] + " " + text.split(" ", 2)[1]
-        dt_obj = start_date + " " + "14:30:00"
-        return parser().parse(dt_obj)
-
-    def _parse_end(self, item):
-        """Parse end datetime as a naive datetime object. Added by pipeline if None"""
-        return None
-
-    def _parse_time_notes(self, item):
-        """Parse any additional notes on the timing of the meeting"""
-        text = item.css("::text").get().strip()
-        return (
-            "Meetings are usually held at 6:30pm on the fourth Monday of the month, please check if the time has changed as specified in the following: "  # noqa
-            + text
+        meeting = Meeting(
+            **meeting_kwargs,
+            location={"name": location_name, "address": address},
+            **trailing_kwargs,
         )
+        meeting["status"] = self._get_status(meeting, status_text)
+        meeting["id"] = self._get_id(meeting)
+        yield meeting
 
-    def _parse_all_day(self, item):
-        """Parse or generate all-day status. Defaults to False."""
-        return False
+    def _meeting_kind(self, text):
+        """Classify a meeting or document as Regular, Special, or Annual
+        based on its text, so documents only attach to the matching
+        meeting rather than every meeting on the same date."""
 
-    def _parse_location(self, item):
-        """Parse or generate location."""
-        location = item.css("::text").get().strip()
-        return {"address": "", "name": location.split(" ", 3)[-1]}
+        text_lower = text.lower()
+        if "facilities committee" in text_lower:
+            return "Facilities Committee"
+        elif "special" in text_lower:
+            return "Special"
+        elif "annual" in text_lower:
+            return "Annual"
+        return "Regular"
 
-    def _parse_links(self, item):
-        """Parse or generate links."""
-        livestream_link = item.css("a::attr(href)").get()
-        locations = "https://www.indypl.org/locations"
-        return [
-            {"href": livestream_link, "title": "Link to livestream"},
-            {"href": locations, "title": "Library locations"},
-        ]
-
-    def _parse_source(self, response):
-        """Parse or generate source."""
-        return response.url
+    def _parse_title(self, text):
+        title = "Indianapolis Public Library Board of Trustees"
+        kind = self._meeting_kind(text)
+        if kind != "Regular":
+            title += f" - {kind} Meeting"
+        return title
