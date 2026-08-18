@@ -1,98 +1,100 @@
 from datetime import datetime
 from os.path import dirname, join
 
-import pytest
 from city_scrapers_core.constants import BOARD, TENTATIVE
 from city_scrapers_core.utils import file_response
 from freezegun import freeze_time
 
-from city_scrapers.spiders.ind_indygo_finance import IndIndygoFinanceSpider
+from city_scrapers.spiders.ind_indygo_bod import IndIndygoFinanceSpider
 
 test_response = file_response(
-    join(dirname(__file__), "files", "ind_indygo_finance.html"),
+    join(dirname(__file__), "files", "ind_indygo.html"),
     url="https://www.indygo.net/about-indygo/board-of-directors/",
 )
 spider = IndIndygoFinanceSpider()
 
-freezer = freeze_time("2023-08-10")
+
+def _resolve_fixture_response(url):
+    if "board-meeting-media-archives" in url:
+        filename = "ind_indygo_video_archive.html"
+    elif "onboardmeetings.com" in url:
+        filename = "ind_indygo_finance_listings.html"
+    else:
+        filename = "ind_indygo.html"
+
+    return file_response(join(dirname(__file__), "files", filename), url=url)
+
+
+freezer = freeze_time("2025-08-10")
 freezer.start()
 
-parsed_items = [item for item in spider.parse(test_response)]
+queue = list(spider.parse(test_response))
+parsed_items = []
+while queue:
+    result = queue.pop(0)
+    if hasattr(result, "callback"):
+        fixture_response = _resolve_fixture_response(result.url)
+        queue.extend(result.callback(fixture_response, **result.cb_kwargs))
+    else:
+        parsed_items.append(result)
 
 freezer.stop()
 
 
-"""
-Uncomment below
-
-def test_tests():
-    print("Please write some tests for this spider or at least disable this one.")
-    assert False
-"""
-
-
-def test_title():
-    assert parsed_items[0]["title"] == "IndyGo Finance Committee"
-
-
-def test_description():
-    assert parsed_items[0]["description"] == ""
-
-
-def test_start():
-    assert parsed_items[0]["start"] == datetime(2024, 1, 18, 8, 30)
-
-
-def test_end():
-    assert parsed_items[0]["end"] is None
-
-
-def test_time_notes():
-    assert parsed_items[0]["time_notes"] == ""
-
-
-def test_id():
-    assert (
-        parsed_items[0]["id"]
-        == "ind_indygo_finance/202401180830/x/indygo_finance_committee"
-    )
-
-
-def test_status():
-    assert parsed_items[0]["status"] == TENTATIVE
-
-
-def test_location():
-    assert parsed_items[0]["location"] == {
-        "name": "Administrative Office - Board Room",
-        "address": "1501 W. Washington St. Indianapolis, IN 46222",
+def test_first_item():
+    item = parsed_items[0]
+    assert item["title"] == "IndyGo Finance Committee"
+    assert item["description"] == ""
+    assert item["start"] == datetime(2026, 2, 19, 15, 0)
+    assert item["end"] is None
+    assert item["time_notes"] == ""
+    assert item["id"] == "ind_indygo_finance/202602191500/x/indygo_finance_committee"
+    assert item["status"] == TENTATIVE
+    assert item["location"] == {
+        "name": "Boardroom - 'B' building",
+        "address": "9503 E 33rd St, Indianapolis, IN 46235",
     }
-
-
-def test_source():
-    assert (
-        parsed_items[0]["source"]
-        == "https://www.indygo.net/about-indygo/board-of-directors/"
-    )
-
-
-def test_links():
-    assert parsed_items[0]["links"] == [
+    assert item["source"] == "https://www.indygo.net/about-indygo/board-of-directors/"
+    assert item["links"] == [
         {
-            "href": "https://www.indygo.net/about-indygo/board-of-directors/",
-            "title": "Meeting Page",
+            "href": "https://public.onboardmeetings.com/Meeting/HrdLpC4rmFdYrgplGJZm82TtkS14OCvw7QLcFFPpPrIA/bLBQjii2mMe%2FDWZk5%2FDIQy8pt00bmyB8O7SzSFaFXtMA?ReturnUrl=%2FGroup%2FHrdLpC4rmFdYrgplGJZm82TtkS14OCvw7QLcFFPpPrIA%2FPBtWHdxtJt6XgVphYPHNTSsJFC992FZbLhKOoPeFrjsA",  # noqa
+            "title": "Meeting Listings",
         },
         {
-            "href": "https://public.onboardmeetings.com/Group/HrdLpC4rmFdYrgplGJZm82TtkS14OCvw7QLcFFPpPrIA/PBtWHdxtJt6XgVphYPHNTSsJFC992FZbLhKOoPeFrjsA",  # noqa
-            "title": "Past Finance Committee packets",
+            "href": "https://youtu.be/Kay6uWEK7oo",
+            "title": "Video",
+        },
+    ]
+    assert item["classification"] == BOARD
+
+
+def test_all_day():
+    assert all(item["all_day"] is False for item in parsed_items)
+
+
+def test_meeting_count():
+    assert len(parsed_items) == 3
+
+
+def test_meeting_listings_specific_link():
+    # July's meeting is on OnBoard's listing, but the archive has no video
+    # for Finance that month (only Board and Gov Audit do).
+    item = next(i for i in parsed_items if i["start"] == datetime(2026, 7, 16, 15, 0))
+    assert item["links"] == [
+        {
+            "href": "https://public.onboardmeetings.com/Meeting/HrdLpC4rmFdYrgplGJZm82TtkS14OCvw7QLcFFPpPrIA/fc5SjM7560AUWb2h%2FLlJ0sTLU%2FoP%2FnnmlQ3mCh%2F1S2MA?ReturnUrl=%2FGroup%2FHrdLpC4rmFdYrgplGJZm82TtkS14OCvw7QLcFFPpPrIA%2FPBtWHdxtJt6XgVphYPHNTSsJFC992FZbLhKOoPeFrjsA",  # noqa
+            "title": "Meeting Listings",
         },
     ]
 
 
-def test_classification():
-    assert parsed_items[0]["classification"] == BOARD
+def test_no_meeting_listings_link_until_published():
+    # December's meeting isn't on OnBoard's listing yet, and there's no
+    # video either.
+    item = next(i for i in parsed_items if i["start"] == datetime(2026, 12, 17, 15, 0))
+    assert item["links"] == []
 
 
-@pytest.mark.parametrize("item", parsed_items)
-def test_all_day(item):
-    assert item["all_day"] is False
+def test_unique_ids():
+    ids = [item["id"] for item in parsed_items]
+    assert len(ids) == len(set(ids))
