@@ -103,7 +103,7 @@ def test_end(parsed_items):
 def test_time_notes(parsed_items):
     assert parsed_items[1]["time_notes"] == (
         "Meetings are usually held at 6:30pm on the fourth Monday "
-        "of the month (third Monday in May/December)."
+        "of the month (third Monday in May/December). "
         "Please refer to the source page for more accurate "
         "meeting time and location."
     )
