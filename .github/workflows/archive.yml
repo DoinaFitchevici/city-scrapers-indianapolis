@@ -1,5 +1,6 @@
 name: Archive
 
+# GitHub runs this schedule as this file's last committer — keep that an active account.
 on:
   schedule:
     - cron: "7 11 * * *"
