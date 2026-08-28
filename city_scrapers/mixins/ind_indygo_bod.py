@@ -140,6 +140,7 @@ class IndIndygoBodSpiderMixin(
             (
                 self._parse_start(date_item, meeting_year, meeting_time),
                 self._parse_title(date_item),
+                self._parse_document_link(date_item, response),
             )
             for date_item in dates_list.css("li")
         ]
@@ -236,9 +237,10 @@ class IndIndygoBodSpiderMixin(
                 },
             )
         else:
-            for start, title in starts:
+            for start, title, document_href in starts:
                 links = self._resolve_links(
                     start,
+                    document_href=document_href,
                     board_reports_by_month=board_reports_by_month,
                     video_link_by_month=video_link_by_month,
                 )
@@ -275,9 +277,10 @@ class IndIndygoBodSpiderMixin(
         """Match each meeting to its specific page on the OnBoard listing."""
         meeting_link_by_date = self._parse_meeting_listings(response)
 
-        for start, title in starts:
+        for start, title, document_href in starts:
             links = self._resolve_links(
                 start,
+                document_href=document_href,
                 listings_href=listings_href,
                 meeting_link_by_date=meeting_link_by_date,
                 board_reports_by_month=board_reports_by_month,
@@ -288,6 +291,7 @@ class IndIndygoBodSpiderMixin(
     def _resolve_links(
         self,
         start,
+        document_href=None,
         listings_href=None,
         meeting_link_by_date=None,
         board_reports_by_month=None,
@@ -295,6 +299,9 @@ class IndIndygoBodSpiderMixin(
     ):
         """Add a link only once a document for this exact meeting exists."""
         links = [dict(link) for link in self.links]
+
+        if document_href:
+            links.append({"href": document_href, "title": "Agenda"})
 
         if listings_href:
             date_key = (str(start.year), start.strftime("%b"), start.day)
@@ -312,9 +319,9 @@ class IndIndygoBodSpiderMixin(
 
         return links
 
-    @staticmethod
-    def _append_link(links, mapping, key, title):
-        href = (mapping or {}).get(key)
+    def _append_link(self, links, mapping, key, title):
+        """Add a link and consume it, so it's attached to only one meeting."""
+        href = (mapping or {}).pop(key, None)
         if href:
             links.append({"href": href, "title": title})
 
@@ -528,3 +535,8 @@ class IndIndygoBodSpiderMixin(
             return f"{self.title} – {description_match.group(1).strip()}"
 
         return self.title
+
+    def _parse_document_link(self, date_item, response):
+        """A date can itself be a link to a document, e.g. a meeting agenda."""
+        href = date_item.css("a::attr(href)").get()
+        return response.urljoin(href) if href else None

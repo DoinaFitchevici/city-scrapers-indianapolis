@@ -91,14 +91,36 @@ def test_board_reports_specific_link():
 
 def test_no_board_reports_link_until_published():
     # August's report isn't published yet, and no video is archived either,
-    # so only the always-present Live Stream link remains.
+    # so only the Live Stream link and the date's own Agenda link remain.
     item = next(i for i in parsed_items if i["start"] == datetime(2026, 8, 20, 16, 0))
     assert item["links"] == [
         {
             "href": "https://www.youtube.com/@iptcIndyGo/streams",
             "title": "Live Stream",
         },
+        {
+            "href": "https://www.indygo.net/wp-content/uploads/2026/08/August-2026-Board-Agenda.docx",  # noqa
+            "title": "Agenda",
+        },
     ]
+
+
+def test_date_link_becomes_agenda_attachment():
+    # Aug. 20's date itself links to a document, so it's attached as an
+    # Agenda link.
+    august_20 = next(
+        i for i in parsed_items if i["start"] == datetime(2026, 8, 20, 16, 0)
+    )
+    assert {
+        "title": "Agenda",
+        "href": "https://www.indygo.net/wp-content/uploads/2026/08/August-2026-Board-Agenda.docx",  # noqa
+    } in august_20["links"]
+
+    # Other dates aren't links, so they get no Agenda attachment.
+    january_15 = next(
+        i for i in parsed_items if i["start"] == datetime(2026, 1, 15, 16, 0)
+    )
+    assert all(link["title"] != "Agenda" for link in january_15["links"])
 
 
 def test_unique_ids():
@@ -131,6 +153,28 @@ def test_video_link_goes_to_earliest_meeting_in_month():
         i for i in parsed_items if i["start"] == datetime(2026, 7, 30, 16, 0)
     )
     assert all(link["title"] != "Video" for link in july_30["links"])
+
+
+def test_board_report_link_goes_to_earliest_meeting_in_month():
+    # July has two Board meetings (16th and 30th) but only one published
+    # report, so the earlier meeting (the 16th) claims it
+    july_16 = next(
+        i for i in parsed_items if i["start"] == datetime(2026, 7, 16, 16, 0)
+    )
+    assert {
+        "title": "Board Report",
+        "href": "https://www.indygo.net/wp-content/uploads/2026/07/July_Board_of_Directors_-_Intro_to_2027_Budget_Book.pdf",  # noqa
+    } in [
+        {"title": link["title"], "href": link["href"]}
+        for link in july_16["links"]
+        if link["title"] == "Board Report"
+    ]
+
+    # the 30th gets no board report link.
+    july_30 = next(
+        i for i in parsed_items if i["start"] == datetime(2026, 7, 30, 16, 0)
+    )
+    assert all(link["title"] != "Board Report" for link in july_30["links"])
 
 
 def test_live_stream_link_on_every_meeting():
