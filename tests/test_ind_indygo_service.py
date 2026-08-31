@@ -58,7 +58,7 @@ def test_first_item():
     assert item["links"] == [
         {
             "href": "https://public.onboardmeetings.com/Meeting/HrdLpC4rmFdYrgplGJZm82TtkS14OCvw7QLcFFPpPrIA/6eDxbr9hCHswqy0SjE563syRs%2FodNZTu77UqKjNHlOQA?ReturnUrl=%2FGroup%2FHrdLpC4rmFdYrgplGJZm82TtkS14OCvw7QLcFFPpPrIA%2FDlKdtulEaT4W%252Ff8DW40PxbNtxqyNp0cvwZNmbbcilaQA",  # noqa
-            "title": "Meeting Listings",
+            "title": "Meeting Listing",
         },
         {
             "href": "https://youtu.be/i2kGTkVmito",
@@ -82,7 +82,7 @@ def test_meeting_listings_specific_link():
     assert item["links"] == [
         {
             "href": "https://public.onboardmeetings.com/Meeting/HrdLpC4rmFdYrgplGJZm82TtkS14OCvw7QLcFFPpPrIA/RTefaIyOCte7lLjqcwYKKfHfRuVPRw4J%2FaGKPrnpoyAA?ReturnUrl=%2FGroup%2FHrdLpC4rmFdYrgplGJZm82TtkS14OCvw7QLcFFPpPrIA%2FDlKdtulEaT4W%252Ff8DW40PxbNtxqyNp0cvwZNmbbcilaQA",  # noqa
-            "title": "Meeting Listings",
+            "title": "Meeting Listing",
         },
         {
             "href": "https://youtu.be/T2H6gQY955U",
