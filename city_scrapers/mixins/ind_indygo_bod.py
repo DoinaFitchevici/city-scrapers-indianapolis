@@ -305,7 +305,7 @@ class IndIndygoBodSpiderMixin(
 
         if listings_href:
             date_key = (str(start.year), start.strftime("%b"), start.day)
-            self._append_link(links, meeting_link_by_date, date_key, "Meeting Listings")
+            self._append_link(links, meeting_link_by_date, date_key, "Meeting Listing")
 
         if board_reports_by_month:
             month_key = (str(start.year), start.strftime("%B"))
