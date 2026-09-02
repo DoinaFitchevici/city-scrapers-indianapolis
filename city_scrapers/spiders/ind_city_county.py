@@ -35,12 +35,8 @@ class IndCityCountySpider(CityScrapersSpider):
     # the only way to reach past meetings.
     SEARCH_URL = "https://calendar.indy.gov/?view=list&search=y"
     SEARCH_FORM_ID = "frmPublicMaster"
-    START_DATE_FIELD = (
-        "ctl01$ctl00$ctl00$publicBody$siteBody$UCEventSearch$UCEventSearch$txtStartDate"  # noqa: E501
-    )
-    SEARCH_BUTTON_FIELD = (
-        "ctl01$ctl00$ctl00$publicBody$siteBody$UCEventSearch$UCEventSearch$btnSearch"  # noqa: E501
-    )
+    START_DATE_FIELD = "ctl01$ctl00$ctl00$publicBody$siteBody$UCEventSearch$UCEventSearch$txtStartDate"  # noqa: E501
+    SEARCH_BUTTON_FIELD = "ctl01$ctl00$ctl00$publicBody$siteBody$UCEventSearch$UCEventSearch$btnSearch"  # noqa: E501
     SEARCH_YEARS_BACK = 2
     EVENTLIST_URL = (
         "https://calendar.indy.gov/handlers/query.ashx?get=eventlist&view=list.xslt"
@@ -282,9 +278,7 @@ class IndCityCountySpider(CityScrapersSpider):
 
     def _search_start_date_str(self):
         """Format as the site's own "M/D/YYYY" (no zero-padding)."""
-        start_date = datetime.now().date() - relativedelta(
-            years=self.SEARCH_YEARS_BACK
-        )
+        start_date = datetime.now().date() - relativedelta(years=self.SEARCH_YEARS_BACK)
         return f"{start_date.month}/{start_date.day}/{start_date.year}"
 
     def _parse_search_page(self, response):
