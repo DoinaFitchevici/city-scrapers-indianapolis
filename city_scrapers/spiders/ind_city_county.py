@@ -66,14 +66,6 @@ class IndCityCountySpider(CityScrapersSpider):
     NOTICE_SUFFIX_RE = re.compile(r"\s*Meeting Notice\s*$")
     WEEK_OF_RE = re.compile(r"Week of ([A-Za-z]+ \d{1,2},?\s*\d{4})")
 
-    async def start(self):
-        """Scrapy 2.13+ dropped automatic support for the old-style sync
-        start_requests() below as the crawl entry point - it's now only
-        ever called directly (e.g. by this test suite), so bridge it here
-        for a real crawl to actually start."""
-        for request in self.start_requests():
-            yield request
-
     def start_requests(self):
         """
         Prefetch the three indy.gov GraphQL "Activity" pages that carry real
