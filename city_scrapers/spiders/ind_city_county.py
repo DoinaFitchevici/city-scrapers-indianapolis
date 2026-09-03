@@ -93,9 +93,29 @@ class IndCityCountySpider(CityScrapersSpider):
             headers={"Content-Type": "application/json"},
             callback=callback,
             cb_kwargs=cb_kwargs or {},
+            errback=self._graphql_errback,
+            meta={"slug": slug},
         )
 
+    def _graphql_errback(self, failure):
+        """
+        A failed prefetch request (DNS/connection error, non-2xx status)
+        would otherwise silently break the sequential chain kicked off by
+        start_requests(), leaving the spider to yield zero meetings. Re-run
+        the same callback with no data instead, so the chain continues - and
+        the calendar listing is matched against whatever lookups did load.
+        """
+        slug = failure.request.meta["slug"]
+        self.logger.warning(
+            "GraphQL request for %r failed (%s); continuing without its data",
+            slug,
+            failure.value,
+        )
+        return failure.request.callback(None, **failure.request.cb_kwargs)
+
     def _activity(self, response):
+        if response is None:
+            return {}
         return response.json()["data"]["activity"] or {}
 
     def _parse_committee_agendas(self, response):
