@@ -50,7 +50,7 @@ empty_minutes_response = file_response(
 
 spider = IndCityCountySpider()
 
-freezer = freeze_time("2024-02-07")
+freezer = freeze_time("2026-09-02")
 freezer.start()
 
 # Mirrors the real chain of callbacks kicked off by start_requests(): each
@@ -95,7 +95,7 @@ def test_description():
 
 
 def test_start():
-    assert parsed_items[0]["start"] == datetime(2024, 2, 8, 17, 30)
+    assert parsed_items[0]["start"] == datetime(2026, 9, 3, 18, 30)
 
 
 def test_end():
@@ -109,7 +109,7 @@ def test_time_notes():
 def test_id():
     assert (
         parsed_items[0]["id"]
-        == "ind_city_county/202402081730/x/parks_and_recreation_committee"
+        == "ind_city_county/202609031830/x/parks_and_recreation_committee"
     )
 
 
@@ -195,7 +195,7 @@ def test_full_council_attachment_match_by_date():
     assert meeting["links"] == [
         {
             "href": "https://us-east-1-indy.graphassets.com/full-council-march",
-            "title": "Full Council Meeting Agenda for March 4, 2024",
+            "title": "Full Council Meeting Agenda for September 28, 2026",
         }
     ]
 
@@ -215,12 +215,12 @@ def test_minutes_fallback_when_no_agenda():
     window) falls back to that committee's own Meeting Minutes archive."""
     meeting = parsed_items[20]
     assert meeting["title"] == "Rules and Public Policy Committee"
-    assert meeting["start"] == datetime(2024, 3, 19, 17, 30)
+    assert meeting["start"] == datetime(2026, 10, 13, 17, 30)
     assert meeting["status"] == TENTATIVE
     assert meeting["links"] == [
         {
             "href": "https://us-east-1-indy.graphassets.com/rules-minutes-mar",
-            "title": "Rules and Public Policy Committee Minutes for March 19, 2024",
+            "title": "Rules and Public Policy Committee Minutes for October 13, 2026",
         }
     ]
 
@@ -230,11 +230,11 @@ def test_weekly_notice_fallback_when_no_agenda_or_minutes():
     back to the bundled weekly notice PDF for that meeting's week."""
     meeting = parsed_items[16]
     assert meeting["title"] == "Administration and Finance Committee"
-    assert meeting["start"] == datetime(2024, 3, 12, 17, 30)
+    assert meeting["start"] == datetime(2026, 10, 6, 17, 30)
     assert meeting["links"] == [
         {
             "href": "https://us-east-1-indy.graphassets.com/weekly-notice-mar11",
-            "title": "NOTICE OF COMMITTEES OF THE COUNCIL FOR THE WEEK OF March 11-15, 2024",  # noqa
+            "title": "NOTICE OF COMMITTEES OF THE COUNCIL FOR THE WEEK OF October 5-9, 2026",  # noqa
         }
     ]
 
@@ -242,7 +242,7 @@ def test_weekly_notice_fallback_when_no_agenda_or_minutes():
 def test_paginated_page_requests_next_page_when_nonempty():
     """A page with events yields its meetings and a request for the next
     page, so the 2-year search range gets fully paginated through."""
-    with freeze_time("2024-02-07"):
+    with freeze_time("2026-09-02"):
         results = list(spider._parse_paginated_page(test_response, page=0))
 
     requests = [r for r in results if isinstance(r, scrapy.Request)]
@@ -256,7 +256,7 @@ def test_paginated_page_requests_next_page_when_nonempty():
 def test_paginated_page_stops_on_empty_page():
     """An empty page (no raw events at all) yields nothing further,
     terminating the pagination loop."""
-    with freeze_time("2024-02-07"):
+    with freeze_time("2026-09-02"):
         results = list(spider._parse_paginated_page(empty_page_response, page=2))
 
     assert results == []

@@ -1,6 +1,7 @@
 import json
 import re
 from datetime import datetime, timedelta
+from datetime import timezone as tz
 
 import pytz
 import scrapy
@@ -33,6 +34,7 @@ class IndCityCountySpider(CityScrapersSpider):
     # server-side session state for a date range, after which the same
     # eventlist endpoint returns events from that range instead - that's
     # the only way to reach past meetings.
+    CALENDAR_URL = "https://calendar.indy.gov/"
     SEARCH_URL = "https://calendar.indy.gov/?view=list&search=y"
     SEARCH_FORM_ID = "frmPublicMaster"
     START_DATE_FIELD = "ctl01$ctl00$ctl00$publicBody$siteBody$UCEventSearch$UCEventSearch$txtStartDate"  # noqa: E501
@@ -270,7 +272,9 @@ class IndCityCountySpider(CityScrapersSpider):
 
     def _search_start_date_str(self):
         """Format as the site's own "M/D/YYYY" (no zero-padding)."""
-        start_date = datetime.now().date() - relativedelta(years=self.SEARCH_YEARS_BACK)
+        start_date = datetime.now(tz.utc).date() - relativedelta(
+            years=self.SEARCH_YEARS_BACK
+        )
         return f"{start_date.month}/{start_date.day}/{start_date.year}"
 
     def _parse_search_page(self, response):
@@ -309,7 +313,7 @@ class IndCityCountySpider(CityScrapersSpider):
         """
         items = self._page_items(response)
         for item in items:
-            meeting = self._build_meeting(item, response)
+            meeting = self._build_meeting(item)
             if meeting:
                 yield meeting
         if items:
@@ -322,7 +326,7 @@ class IndCityCountySpider(CityScrapersSpider):
         with an unknown classification.
         """
         for item in self._page_items(response):
-            meeting = self._build_meeting(item, response)
+            meeting = self._build_meeting(item)
             if meeting:
                 yield meeting
 
@@ -332,7 +336,7 @@ class IndCityCountySpider(CityScrapersSpider):
         sel = Selector(text=html_content)
         return sel.css("article.list-event")
 
-    def _build_meeting(self, item, response):
+    def _build_meeting(self, item):
         title = self._parse_title(item)
         all_day, start, end = self._parse_datetimes(item)
         classification = self._parse_classification(title)
@@ -349,7 +353,7 @@ class IndCityCountySpider(CityScrapersSpider):
             time_notes="",
             location=self._parse_location(item),
             links=links,
-            source=self._parse_source(item, response),
+            source=self._parse_source(item),
         )
         status_text = "CANCELLED" if cancelled else ""
         meeting["status"] = self._get_status(meeting, status_text)
@@ -508,6 +512,6 @@ class IndCityCountySpider(CityScrapersSpider):
 
         return {"name": location_name, "address": address}
 
-    def _parse_source(self, item, response):
+    def _parse_source(self, item):
         event_link = item.css("section.list-event-link a::attr(href)").get()
-        return event_link or response.url
+        return event_link or self.CALENDAR_URL
