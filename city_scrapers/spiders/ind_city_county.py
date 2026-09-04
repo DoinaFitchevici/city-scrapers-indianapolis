@@ -1,7 +1,6 @@
 import json
 import re
-from datetime import datetime, timedelta
-from datetime import timezone as tz
+from datetime import datetime, timedelta, timezone
 
 import pytz
 import scrapy
@@ -67,6 +66,10 @@ class IndCityCountySpider(CityScrapersSpider):
 
     NOTICE_SUFFIX_RE = re.compile(r"\s*Meeting Notice\s*$")
     WEEK_OF_RE = re.compile(r"Week of ([A-Za-z]+ \d{1,2},?\s*\d{4})")
+    # Strips only a trailing "Meeting"/"Meeting Notice" - never "Committee",
+    # which is a real, load-bearing part of almost every committee's name
+    # (e.g. "Rules and Public Policy Committee").
+    NAME_NOISE_RE = re.compile(r"\s+meeting(?:\s+notice)?\s*$", re.I)
 
     def start_requests(self):
         """
@@ -92,9 +95,8 @@ class IndCityCountySpider(CityScrapersSpider):
             body=json.dumps(payload),
             headers={"Content-Type": "application/json"},
             callback=callback,
-            cb_kwargs=cb_kwargs or {},
+            cb_kwargs={**(cb_kwargs or {}), "slug": slug},
             errback=self._graphql_errback,
-            meta={"slug": slug},
         )
 
     def _graphql_errback(self, failure):
@@ -105,7 +107,7 @@ class IndCityCountySpider(CityScrapersSpider):
         the same callback with no data instead, so the chain continues - and
         the calendar listing is matched against whatever lookups did load.
         """
-        slug = failure.request.meta["slug"]
+        slug = failure.request.cb_kwargs["slug"]
         self.logger.warning(
             "GraphQL request for %r failed (%s); continuing without its data",
             slug,
@@ -118,7 +120,20 @@ class IndCityCountySpider(CityScrapersSpider):
             return {}
         return response.json()["data"]["activity"] or {}
 
-    def _parse_committee_agendas(self, response):
+    def _committee_key_name(self, name):
+        """
+        Normalizes a committee name for use as a lookup key, so an agenda/
+        minutes match doesn't depend on three hand-maintained sources (the
+        calendar's own <h3> title, council-committee-agendas' title
+        attribute, and the committees-of-the-council directory) agreeing
+        byte for byte - e.g. the calendar titles some meetings "X Committee
+        Meeting" while the directory only ever has "X Committee". Only the
+        key is normalized; a meeting's displayed title is left untouched.
+        """
+        name = self.NAME_NOISE_RE.sub("", name)
+        return " ".join(name.split()).casefold()
+
+    def _parse_committee_agendas(self, response, slug=None):
         """
         The "Upcoming Committee Agendas" list on this page is the only
         place a specific committee meeting's agenda/notice link and
@@ -138,6 +153,11 @@ class IndCityCountySpider(CityScrapersSpider):
                 continue
             href = link.attrib.get("href")
             title_attr = link.attrib.get("title", "").strip()
+            if not title_attr or title_attr.startswith("http"):
+                # No readable name to key this entry by (the site sometimes
+                # pastes the asset's own tracking URL into title instead) -
+                # skip rather than store a match key nothing will ever hit.
+                continue
             name = self.NOTICE_SUFFIX_RE.sub("", title_attr).strip()
             date_text = link.css("::text").get(default="").strip()
             if not name or not href or not date_text:
@@ -148,7 +168,8 @@ class IndCityCountySpider(CityScrapersSpider):
                 continue
             full_text = " ".join(li.css("::text").getall())
             cancelled = "cancel" in full_text.lower()
-            self.committee_attachments[(name, meeting_date)] = {
+            key = (self._committee_key_name(name), meeting_date)
+            self.committee_attachments[key] = {
                 "href": href,
                 "title": title_attr,
                 "cancelled": cancelled,
@@ -193,7 +214,7 @@ class IndCityCountySpider(CityScrapersSpider):
                         "title": title_attr,
                     }
 
-    def _parse_full_council_agendas(self, response):
+    def _parse_full_council_agendas(self, response, slug=None):
         """
         Full Council agendas are archived by year, with one entry per
         specific meeting date going back to 2019, so past and future
@@ -209,8 +230,12 @@ class IndCityCountySpider(CityScrapersSpider):
                     if not link:
                         continue
                     href = link.attrib.get("href")
-                    title_attr = link.attrib.get("title", "").strip()
                     date_text = li.xpath("string(.)").get(default="").split(":")[0]
+                    title_attr = link.attrib.get("title", "").strip()
+                    if not title_attr or title_attr.startswith("http"):
+                        title_attr = (
+                            f"Full Council Meeting Agenda for {date_text.strip()}"
+                        )
                     if not href or not date_text:
                         continue
                     try:
@@ -230,7 +255,7 @@ class IndCityCountySpider(CityScrapersSpider):
         re.MULTILINE,
     )
 
-    def _parse_committee_directory(self, response):
+    def _parse_committee_directory(self, response, slug=None):
         """
         The full, current list of standing committees (and their own page
         slugs), read dynamically so a committee being renamed/added/removed
@@ -244,7 +269,7 @@ class IndCityCountySpider(CityScrapersSpider):
         committees = []
         for match in self.COMMITTEE_LIST_ITEM_RE.finditer(markdown):
             name, slug = match.group(1).strip(), match.group(2).strip()
-            self.known_committees.add(name)
+            self.known_committees.add(self._committee_key_name(name))
             committees.append((name, slug))
         yield self._next_committee_minutes_request(committees)
 
@@ -260,7 +285,7 @@ class IndCityCountySpider(CityScrapersSpider):
             cb_kwargs={"committee_name": name, "remaining": remaining[1:]},
         )
 
-    def _parse_committee_minutes(self, response, committee_name, remaining):
+    def _parse_committee_minutes(self, response, committee_name, remaining, slug=None):
         """
         Each committee's own page has a "Meeting Minutes" accordion with
         one item per year, each listing individual meeting dates - the
@@ -284,7 +309,8 @@ class IndCityCountySpider(CityScrapersSpider):
                         # not every link's text is a date (e.g. "Exhibit A"
                         # attachments alongside a dated minutes link)
                         continue
-                    self.committee_minutes[(committee_name, meeting_date)] = {
+                    key = (self._committee_key_name(committee_name), meeting_date)
+                    self.committee_minutes[key] = {
                         "href": href,
                         "title": f"{committee_name} Minutes for {date_text}",
                     }
@@ -292,7 +318,7 @@ class IndCityCountySpider(CityScrapersSpider):
 
     def _search_start_date_str(self):
         """Format as the site's own "M/D/YYYY" (no zero-padding)."""
-        start_date = datetime.now(tz.utc).date() - relativedelta(
+        start_date = datetime.now(timezone.utc).date() - relativedelta(
             years=self.SEARCH_YEARS_BACK
         )
         return f"{start_date.month}/{start_date.day}/{start_date.year}"
@@ -401,7 +427,7 @@ class IndCityCountySpider(CityScrapersSpider):
         to keyword matching for departments the GraphQL API doesn't cover
         (e.g. boards, commissions)."""
         clean_title = title.lower()
-        if any(name.lower() == clean_title for name in self.known_committees):
+        if self._committee_key_name(title) in self.known_committees:
             return COMMITTEE
         if "committee" in clean_title:
             return COMMITTEE
@@ -426,7 +452,7 @@ class IndCityCountySpider(CityScrapersSpider):
                 return [{"href": entry["href"], "title": entry["title"]}], False
             return [], False
         if classification == COMMITTEE:
-            key = (title, start.date())
+            key = (self._committee_key_name(title), start.date())
             entry = self.committee_attachments.get(key)
             if entry:
                 links = [{"href": entry["href"], "title": entry["title"]}]
