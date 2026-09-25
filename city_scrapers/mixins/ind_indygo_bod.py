@@ -199,6 +199,11 @@ class IndIndygoBodSpiderMixin(
             yield scrapy.Request(
                 self.video_archive_url,
                 callback=self._parse_video_archive_and_continue,
+                # The live page and any same-design historical snapshot both
+                # fetch this same URL - without this, Scrapy's dupe filter
+                # silently drops every request after the first, dropping
+                # that entire snapshot's meetings with no warning logged.
+                dont_filter=True,
                 cb_kwargs={
                     "starts": starts,
                     "source": response.url,
