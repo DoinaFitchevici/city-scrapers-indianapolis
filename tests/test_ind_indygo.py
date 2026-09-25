@@ -18,6 +18,13 @@ spider = IndIndygoSpider()
 def _resolve_fixture_response(url):
     if "board-meeting-media-archives" in url:
         filename = "ind_indygo_video_archive.html"
+    elif "20251211205320" in url:
+        # Dec 2025 Wayback snapshot: new page design, 2025 schedule.
+        filename = "ind_indygo_board_2025_snapshot.html"
+    elif "20241227050537" in url:
+        # Dec 2024 Wayback snapshot: old page design, complete 2024
+        # schedule and reports on the same page.
+        filename = "ind_indygo_board_2024_old_design.html"
     else:
         filename = "ind_indygo.html"
 
@@ -76,7 +83,7 @@ def test_all_day():
 
 
 def test_meeting_count():
-    assert len(parsed_items) == 13
+    assert len(parsed_items) == 40
 
 
 def test_board_reports_specific_link():
@@ -138,6 +145,47 @@ def test_live_stream_link_on_every_meeting():
         any(link["title"] == "Live Stream" for link in item["links"])
         for item in parsed_items
     )
+
+
+def test_historical_snapshot_2025_new_design():
+    # indygo.net has no live equivalent of OnBoard's `?year=` param, so 2025
+    # comes from a Wayback snapshot taken while the *current* page design
+    # was live but still showing 2025's schedule.
+    item = next(i for i in parsed_items if i["start"] == datetime(2025, 2, 20, 16, 0))
+    assert item["title"] == "IndyGo Board"
+    assert {
+        "href": "https://www.indygo.net/wp-content/uploads/2025/02/February-2025-Board-Meeting-Book.pdf",  # noqa
+        "title": "Board Report",
+    } in item["links"]
+
+
+def test_historical_snapshot_2024_old_design():
+    # 2024 only exists in a pre-redesign snapshot, with a different page
+    # structure entirely (`_parse_old_design_section`). Its Board Reports
+    # accordion is parsed from that same snapshot response, since a
+    # late-in-the-year snapshot already has the complete year.
+    item = next(i for i in parsed_items if i["start"] == datetime(2024, 1, 25, 11, 0))
+    assert item["title"] == "IndyGo Board"
+    assert {
+        "href": "https://www.indygo.net/wp-content/uploads/2024/01/January-2024-Board-of-Directors-Meeting-Book.pdf",  # noqa
+        "title": "Board Report",
+    } in item["links"]
+
+    december = next(
+        i for i in parsed_items if i["start"] == datetime(2024, 12, 19, 11, 0)
+    )
+    assert {
+        "href": "https://www.indygo.net/wp-content/uploads/2024/12/December-Board-of-Directors-Meeting-Book-1.pdf",  # noqa
+        "title": "Board Report",
+    } in december["links"]
+
+
+def test_historical_snapshot_finds_meeting_added_after_earlier_snapshot():
+    # The Dec 2024 snapshot has a "Monday, Oct. 7" meeting that an earlier
+    # (Jul 2024) snapshot didn't -- confirming the later snapshot is more
+    # accurate/complete, not just more convenient.
+    item = next(i for i in parsed_items if i["start"] == datetime(2024, 10, 7, 11, 0))
+    assert item["title"] == "IndyGo Board"
 
 
 def test_location_fallback_when_address_not_found():

@@ -1,7 +1,7 @@
 from datetime import datetime
 from os.path import dirname, join
 
-from city_scrapers_core.constants import BOARD, TENTATIVE
+from city_scrapers_core.constants import COMMITTEE, TENTATIVE
 from city_scrapers_core.utils import file_response
 from freezegun import freeze_time
 
@@ -17,7 +17,14 @@ spider = IndIndygoServiceSpider()
 def _resolve_fixture_response(url):
     if "board-meeting-media-archives" in url:
         filename = "ind_indygo_video_archive.html"
+    elif "year=2025" in url:
+        # The `-1` extra-listing-year offset (2026 - 1); OnBoard's response
+        # to this would show 2025 and 2024.
+        filename = "ind_indygo_service_listings_offset.html"
     elif "onboardmeetings.com" in url:
+        # The base listings request, and the `+1` offset (`year=2027`) --
+        # 2027 isn't published yet, so OnBoard falls back to its default
+        # view (2026 + 2025), same as the base request.
         filename = "ind_indygo_service_listings.html"
     else:
         filename = "ind_indygo.html"
@@ -65,7 +72,7 @@ def test_first_item():
             "title": "Video",
         },
     ]
-    assert item["classification"] == BOARD
+    assert item["classification"] == COMMITTEE
 
 
 def test_all_day():
@@ -73,7 +80,7 @@ def test_all_day():
 
 
 def test_meeting_count():
-    assert len(parsed_items) == 6
+    assert len(parsed_items) == 11
 
 
 def test_meeting_listings_specific_link():
@@ -101,3 +108,30 @@ def test_no_meeting_listings_link_until_published():
 def test_unique_ids():
     ids = [item["id"] for item in parsed_items]
     assert len(ids) == len(set(ids))
+
+
+def test_past_year_meeting_from_listings_page():
+    # OnBoard's listings page also has 2025 meetings, which aren't in the
+    # board page's own (current-year-only) schedule; these get backfilled
+    # from the listings page itself, reusing the recurring meeting time.
+    item = next(i for i in parsed_items if i["start"] == datetime(2025, 2, 13, 8, 30))
+    assert item["title"] == "IndyGo Service Committee"
+    assert item["links"] == [
+        {
+            "href": "https://public.onboardmeetings.com/Meeting/HrdLpC4rmFdYrgplGJZm82TtkS14OCvw7QLcFFPpPrIA/1uGvFUW22o6BY4bNA0h5yLBvh%2F9RaUvXCiMQuQCB1j8A?ReturnUrl=%2FGroup%2FHrdLpC4rmFdYrgplGJZm82TtkS14OCvw7QLcFFPpPrIA%2FDlKdtulEaT4W%252Ff8DW40PxbNtxqyNp0cvwZNmbbcilaQA",  # noqa
+            "title": "Meeting Listings",
+        },
+    ]
+
+
+def test_two_years_back_meeting_from_extra_listing_year_offset():
+    # The explicit `?year=2025` request (offset -1) also surfaces 2024,
+    # two years back from the current 2026 schedule.
+    item = next(i for i in parsed_items if i["start"] == datetime(2024, 6, 20, 8, 30))
+    assert item["title"] == "IndyGo Service Committee"
+    assert item["links"] == [
+        {
+            "href": "https://public.onboardmeetings.com/Meeting/HrdLpC4rmFdYrgplGJZm82TtkS14OCvw7QLcFFPpPrIA/zzJunService2024AAAAAAAAAAAAAAAAAAAAAAAAAAAAA",  # noqa
+            "title": "Meeting Listings",
+        },
+    ]
