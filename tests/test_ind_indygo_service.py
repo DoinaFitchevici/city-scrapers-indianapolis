@@ -65,7 +65,7 @@ def test_first_item():
     assert item["links"] == [
         {
             "href": "https://public.onboardmeetings.com/Meeting/HrdLpC4rmFdYrgplGJZm82TtkS14OCvw7QLcFFPpPrIA/6eDxbr9hCHswqy0SjE563syRs%2FodNZTu77UqKjNHlOQA?ReturnUrl=%2FGroup%2FHrdLpC4rmFdYrgplGJZm82TtkS14OCvw7QLcFFPpPrIA%2FDlKdtulEaT4W%252Ff8DW40PxbNtxqyNp0cvwZNmbbcilaQA",  # noqa
-            "title": "Meeting Listings",
+            "title": "Meeting Listing",
         },
         {
             "href": "https://youtu.be/i2kGTkVmito",
@@ -89,7 +89,7 @@ def test_meeting_listings_specific_link():
     assert item["links"] == [
         {
             "href": "https://public.onboardmeetings.com/Meeting/HrdLpC4rmFdYrgplGJZm82TtkS14OCvw7QLcFFPpPrIA/RTefaIyOCte7lLjqcwYKKfHfRuVPRw4J%2FaGKPrnpoyAA?ReturnUrl=%2FGroup%2FHrdLpC4rmFdYrgplGJZm82TtkS14OCvw7QLcFFPpPrIA%2FDlKdtulEaT4W%252Ff8DW40PxbNtxqyNp0cvwZNmbbcilaQA",  # noqa
-            "title": "Meeting Listings",
+            "title": "Meeting Listing",
         },
         {
             "href": "https://youtu.be/T2H6gQY955U",
@@ -119,7 +119,7 @@ def test_past_year_meeting_from_listings_page():
     assert item["links"] == [
         {
             "href": "https://public.onboardmeetings.com/Meeting/HrdLpC4rmFdYrgplGJZm82TtkS14OCvw7QLcFFPpPrIA/1uGvFUW22o6BY4bNA0h5yLBvh%2F9RaUvXCiMQuQCB1j8A?ReturnUrl=%2FGroup%2FHrdLpC4rmFdYrgplGJZm82TtkS14OCvw7QLcFFPpPrIA%2FDlKdtulEaT4W%252Ff8DW40PxbNtxqyNp0cvwZNmbbcilaQA",  # noqa
-            "title": "Meeting Listings",
+            "title": "Meeting Listing",
         },
     ]
 
@@ -132,6 +132,6 @@ def test_two_years_back_meeting_from_extra_listing_year_offset():
     assert item["links"] == [
         {
             "href": "https://public.onboardmeetings.com/Meeting/HrdLpC4rmFdYrgplGJZm82TtkS14OCvw7QLcFFPpPrIA/zzJunService2024AAAAAAAAAAAAAAAAAAAAAAAAAAAAA",  # noqa
-            "title": "Meeting Listings",
+            "title": "Meeting Listing",
         },
     ]
