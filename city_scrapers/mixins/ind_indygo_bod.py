@@ -113,7 +113,7 @@ class IndIndygoBodSpiderMixin(
     #: backfill for 2024-2025; 2027+ will come from the live page.
     historical_snapshots = []
 
-    timezone = "America/Detroit"
+    timezone = "America/Indiana/Indianapolis"
 
     start_urls = ["https://www.indygo.net/about-indygo/board-of-directors/"]
 
