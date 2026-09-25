@@ -225,7 +225,7 @@ class IndIndygoBodSpiderMixin(
         )
 
     def _strip_wayback(self, url):
-        """Unwrap a snapshot's `web.archive.org/web/<ts>/<url>` links to the live URL."""
+        """Unwrap a snapshot's `web.archive.org/web/<ts>/<url>` links to the live URL."""  # noqa
         return self._WAYBACK_PREFIX_RE.sub("", url)
 
     def _parse_old_design_section(self, response):
@@ -471,7 +471,7 @@ class IndIndygoBodSpiderMixin(
         board_reports_by_month=None,
         video_link_by_month=None,
     ):
-        """Match current-year meetings to the OnBoard listing, then fetch extra years."""
+        """Match current-year meetings to the OnBoard listing, then fetch extra years."""  # noqa
         meeting_link_by_date, _past_dates_by_year = self._parse_meeting_listings(
             response, meeting_year
         )
